@@ -1,0 +1,12 @@
+.Rproj.user
+.Rhistory
+.RData
+docs/
+outputs/
+saves/
+local/
+*.xlsx
+*.shp
+*.prj
+*.dbf
+*.shx

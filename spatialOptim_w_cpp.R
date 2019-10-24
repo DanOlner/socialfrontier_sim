@@ -3,6 +3,7 @@ library(tidyverse)
 library(spdep)
 library(raster)
 library(tmap)
+# library(RcppArmadillo)
 #library(Rcpp)
 #source('SegregationIndicesDuncanLee.R')
 Rcpp::sourceCpp("simfunctions.cpp")
@@ -516,6 +517,52 @@ write_csv(meanz,'saves/di_vs_aacd.csv')
 
 
 
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#100x100 grid: even spread for proportion ethnicity----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#So that there are proportion values spread out evenly from 0 to 1
+#So it's possible to get smooth surfaces
+#Minimising AACD for this kind of DI should give us that
+ncol = 100
+nrow = 100
+
+#Set all this up with the same geography.
+grid <- raster(nrow = nrow, ncol = ncol) %>% rasterToPolygons() %>% as("sf")
+
+
+grid$peeps1 <- runif(nrow(grid))
+grid$peeps2 <- 1-grid$peeps1
+hist(grid$peeps1)#Evenly spread from 0 to 1
+
+#NOISE
+plot(grid[,'peeps1'])
+
+
+#Optimise to minimum
+min <- optimiseAverageAbsoluteContiguousDifference(attribute = grid$peeps1, 
+                                                   secondpop = grid$peeps2,
+                                                   ncol = ncol, nrow = nrow, maximise = F, breakval = 5000000, cutoff=0)
+
+
+
+class(min)
+grid$minimised <- min$attribute
+plot(grid[,'minimised'])
+
+#So that's the pattern we're familiar with
+saveRDS(grid,'saves/grid100x100_uniformprop_w_minimised.rds')
+
+
+#Put more colours in
+x <- tm_shape(grid) +
+  tm_fill("minimised", n=30, legend.show = F)
+
+tmap_save(tm = x, filename = 'outputs/100x100_DI_uniform_minimise.png', width=10,height=10)
+
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #SMALLER TOY EXAMPLE BASED ON GWILYM'S LITTLE CITY PLOTS----
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -600,6 +647,20 @@ AFPI <- mean_n_quantz %>% left_join(actualAACDs, by = 'type') %>%
 # 
 # minaacd = getAverageAbsoluteContiguousDifference(min$attribute, ncol = ncol, nrow = nrow)
 # maxaacd = getAverageAbsoluteContiguousDifference(max$attribute, ncol = ncol, nrow = nrow)
+
+
+#Try edge detection
+#https://www.rdocumentation.org/packages/wvtool/versions/1.0/topics/edge.detect
+library(wvtool)
+
+#need it to be a raster, right?
+gridsmooth_raster <- raster(nrow = nrow, ncol = ncol)
+values(gridsmooth_raster) <- gridsmooth$peeps1
+plot(gridsmooth_raster)
+
+gridsmooth_raster <- rgb2gray(gridsmooth_raster)
+rez <- edge.detect(gridsmooth_raster, thresh1=1, thresh2=15, noise="gaussian", noise.s=3, method="Canny")
+
 
 
 
@@ -760,10 +821,93 @@ border <- st_intersection(
 #USE NEIGHBOUR LISTS IN RCPP----
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+Rcpp::sourceCpp("simfunctions.cpp")
+
 #First I need some actual neighbours
 #Quick check, with torus
 numcol = 12
 numrow = 12
+
+#Rook contiguity
+cellz <- cell2nb(nrow = numrow, ncol = numcol, torus = TRUE)
+
+sapply(1:length(cellz), function(x) cellz[[x]])
+
+cellz[[10]]
+
+#zero is 1!
+testNeighbours(cellz,10)
+
+#Bonza, we can access neighbours for any neighbour list
+#I imagine this'll slow things down a bit, but a good start
+#Given we need a specific function.
+#Although there's prob a matrix math way of applying that function quickly
+#RCPParmadillo? Will see.
+
+#Actually, as long as we're sticking to a grid, doing this manually is going to be faster.
+
+#random attribute column for that data
+#Just an arbitrary neighbour list, doesn't matter what
+attrs <- runif(length(cellz))
+
+weightedNeighbourIndex(attrs,cellz)
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#TEST CONTIG MATRIX IN ARMADILLO----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Rcpp::sourceCpp("armadillo.cpp")
+
+#Get contig matrix from above torus
+x <- nb2mat(cellz)#default is row-normalised
+
+#Just try a random vector for multiplying
+y = runif(numrow*numcol)
+
+results <- armatest(x,y)
+
+#Is that correct? Tick.
+baserez <- x %*% y
+table(results == baserez)
+
+
+#Updated rcpp to loop 1000 times. Check speed diff
+repbase <- function(x,y){
+  for(i in 1:5000) x %*% y
+}
+
+library(rbenchmark)
+benchmark(repbase(x,y), armatest(x,y))#3.55' vs 13.22' for 5000 reps. 3.5 times faster than base. Not vast.
+
+
+#See about using sparse matrix
+#Yup, this gets it working
+#https://stackoverflow.com/questions/10555210/r-convert-matrix-or-data-frame-to-sparsematrix
+A <- as(x, "sparseMatrix")#Both the same?
+A <- Matrix(x, sparse = TRUE) 
+
+res_sparse <- armatest2(A,y)#Tick!
+table(res_sparse == results)
+
+#Speed? Putting back as 5000 loop with void return
+#Sparse faster but difference not huge 1:1.2 ratio, ish.
+benchmark(armatest(x,y), armatest2(A,y))
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#CHECK ON NEMA'S CODE FOR FINDING ABS CONTIG DIFF VIA MATRIX----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#On some small example
+numcol = 4
+numrow = 4
 
 #Rook contiguity
 cellz <- cell2nb(nrow = numrow, ncol = numcol, torus = TRUE)
@@ -773,12 +917,212 @@ cellz[[1]]
 #zero is 1!
 testNeighbours(cellz,0)
 
-#Bonza, we can access neighbours for any neighbour list
-#I imagine this'll slow things down a bit, but a good start
-#Given we need a specific function.
-#Although there's prob a matrix math way of applying that function quickly
-#RCPParmadillo? Will see.
+x <- nb2mat(cellz)#default is row-normalised
 
+#Just try a random vector for multiplying
+y = runif(numrow*numcol)
+
+
+#Abs contig diffs for all those pairs
+x.diff.matrix <- outer(y,y,FUN="-")
+x.diff.matrix <- abs(x.diff.matrix)
+
+## paired differences amongst geographical neighbours
+# x.diff.W0 <- x.diff.matrix[x == 1]
+#Oops - row normalised, so...
+x.diff.W0 <- x.diff.matrix[x > 0]
+
+#this part I worry about. What if two are the same?
+# x.diff.W0 <- unique(x.diff.W0)
+
+
+#Feel like halving it might be better/easier.
+#Just find mean then halve.
+mean(x.diff.W0)/2
+mean(unique(x.diff.W0))
+#Oh of course: THE MEAN WILL BE THE SAME:
+#It's twice the count of cells and each value is repeated twice.
+#So don't need to divide by two and actually don't need unique either
+mean(x.diff.W0)
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#WEIGHTED NEIGHBOUR INDEX----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#See notes section "new measure?"
+#Use G's little sample cities again - will maybe scale them up at some point
+ncol = 7
+nrow = 8
+
+#Set all this up with the same geography.
+#We have two versions to do.
+gridsmooth <- raster(nrow = nrow, ncol = ncol) %>% rasterToPolygons() %>% as("sf")
+gridsmooth$id = 1:nrow(gridsmooth)
+
+gridedges <- raster(nrow = nrow, ncol = ncol) %>% rasterToPolygons() %>% as("sf")
+gridedges$id = 1:nrow(gridedges)
+
+#Coding values directly from G (left to right)
+#G uses single value - for DI for two pops, the other peeps are 1-x
+gridsmooth$peeps1 <- c(0.05,0.2,0.4,0.6,0.8,0.8,0.8,0.05,0.2,0.4,0.6,0.8,0.8,0.8,0.05,0.2,0.4,0.6,0.6,0.8,0.8,0.05,0.2,0.4,0.6,0.6,0.6,0.6,0.05,0.2,0.4,0.4,0.4,0.4,0.4,0.05,0.2,0.2,0.2,0.2,0.2,0.2,0.05,0.2,0.2,0.2,0.2,0.2,0.2,0.05,0.05,0.05,0.05,0.05,0.05,0.05)
+gridsmooth$peeps2 <- 1 - c(0.05,0.2,0.4,0.6,0.8,0.8,0.8,0.05,0.2,0.4,0.6,0.8,0.8,0.8,0.05,0.2,0.4,0.6,0.6,0.8,0.8,0.05,0.2,0.4,0.6,0.6,0.6,0.6,0.05,0.2,0.4,0.4,0.4,0.4,0.4,0.05,0.2,0.2,0.2,0.2,0.2,0.2,0.05,0.2,0.2,0.2,0.2,0.2,0.2,0.05,0.05,0.05,0.05,0.05,0.05,0.05)
+
+gridedges$peeps1 <- c(0.2,0.4,0.4,0.4,0.4,0.4,0.2,0.2,0.2,0.2,0.05,0.2,0.2,0.4,0.2,0.2,0.05,0.8,0.05,0.6,0.4,0.2,0.05,0.8,0.8,0.8,0.05,0.4,0.2,0.05,0.8,0.8,0.8,0.05,0.4,0.2,0.05,0.05,0.8,0.05,0.05,0.6,0.2,0.6,0.05,0.05,0.05,0.6,0.2,0.2,0.2,0.6,0.6,0.6,0.6,0.2)
+gridedges$peeps2 <- 1- c(0.2,0.4,0.4,0.4,0.4,0.4,0.2,0.2,0.2,0.2,0.05,0.2,0.2,0.4,0.2,0.2,0.05,0.8,0.05,0.6,0.4,0.2,0.05,0.8,0.8,0.8,0.05,0.4,0.2,0.05,0.8,0.8,0.8,0.05,0.4,0.2,0.05,0.05,0.8,0.05,0.05,0.6,0.2,0.6,0.05,0.05,0.05,0.6,0.2,0.2,0.2,0.6,0.6,0.6,0.6,0.2)
+
+
+#Get neighbour list
+gridedges.sp <- as_Spatial(gridedges)
+
+#Rook contig plz! We only want bordering cells
+neighbours <- poly2nb(gridedges.sp, queen=F)
+
+#Tick, max four
+neighbours[[25]]
+
+displayAllNeighbours(gridedges$peeps1,neighbours)
+
+#CRASH
+#Do same for loops in R, look for issues
+#This is the key line:
+#all we're looking for: j neighbours of neighbours (2nd order) that are also i neighbours (first order).
+#(NOT overlapping neighbours of neighbours of j and neighbours of neighbours of i - they don't overlap!)
+for(i in 1:length(gridedges$peeps1)){
+  
+  #Get neighbours of cell i
+  i_nb <- neighbours[[i]]
+  
+  #For each neigbour of cell i: j
+  for(j in 1:length(i_nb)){
+    
+    #Get neighbours of cell j
+    j_nb <- neighbours[[ i_nb[[j]] ]]
+    
+    #We then want neighbours of neighbours of cell j
+    #all we're looking for: j neighbours of neighbours (2nd order) that are also i neighbours (first order).
+    j_nb_of_nb <- lapply(j_nb, function(x) neighbours[[x]])
+    names(j_nb_of_nb) <- j_nb
+    j_nb_of_nb <- unlist(j_nb_of_nb)
+    
+    #What's in both?
+    #If we exclude j itself, I think this works
+    i_nb[which(i_nb %in% j_nb_of_nb)]
+    
+    cat(paste0("i:",i," j:",i_nb[[j]],": "))
+    cat(i_nb[which(i_nb %in% j_nb_of_nb)])
+    cat("\n")
+    
+  }
+  
+}
+
+
+
+#Currently returning a vector with one result per border
+x <- weightedNeighbourIndex(gridedges$peeps1,neighbours)
+Rcpp::sourceCpp("simfunctions.cpp")
+
+
+#Tick: the c++ script is returning the right number of borders
+length(x)
+length(unlist(neighbours))
+
+#Which should make it easy-ish to check it's doing what we think it is.
+#First entry will be border between one and two
+neighbours[[1]]
+
+#result is 0.1
+#Looking at diagram: should be average of -
+#ACD 1:2, ACD 8:9
+#Tick. So that's halving the ACD we'd usually get (0.2) with another border that's 0.
+mean(c(abs(gridedges$peeps1[1]-gridedges$peeps1[2]),abs(gridedges$peeps1[8]-gridedges$peeps1[9])))
+
+#Let's pick another with two pairs either side. 17:10 should do.
+#Err. How far through is that? That's a bit fiddly to check. 
+#Except: use the neighbour list
+neighbours[[17]]
+
+#Where in the unlisted do we get that sequence?
+nb_vec <- unlist(neighbours)
+which(nb_vec==10)
+which(nb_vec==16)
+which(nb_vec==18)
+
+#53,54,55 are sequential for those borders. So 53 should be border for 17:10
+x[53]
+
+#Base ACD would be 17:10 and the pairs each side
+mean(c(abs(gridedges$peeps1[17]-gridedges$peeps1[10]),
+       abs(gridedges$peeps1[9]-gridedges$peeps1[16]),
+       abs(gridedges$peeps1[11]-gridedges$peeps1[18])))
+
+#Tick. Looking promising.
+
+#So, what do we get for our two simple examples?
+x <- weightedNeighbourIndex(gridedges$peeps1,neighbours)
+y <- weightedNeighbourIndex(gridsmooth$peeps1,neighbours)
+
+mean(x)
+mean(y)
+
+
+#Ooo that looks quite promising!
+#Now we want to maximise / minimise to see what we get
+#For which we could do with setting up something generic given it's only returning a single value
+#Though for now...
+Rcpp::sourceCpp("simfunctions.cpp")
+
+#Check... tick
+getWeightedNeighbourIndexMean(gridedges$peeps1,neighbours)
+mean(x)
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#OPTIMISE WEIGHTED WITH UNIFORM 50*50 GRID----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#So that there are proportion values spread out evenly from 0 to 1
+#So it's possible to get smooth surfaces
+#Minimising AACD for this kind of DI should give us that
+ncol = 100
+nrow = 100
+
+#Set all this up with the same geography.
+grid <- raster(nrow = nrow, ncol = ncol) %>% rasterToPolygons() %>% as("sf")
+
+
+grid$peeps1 <- runif(nrow(grid))
+grid$peeps2 <- 1-grid$peeps1
+hist(grid$peeps1)#Evenly spread from 0 to 1
+
+#NOISE
+plot(grid[,'peeps1'])
+
+#Neighbour list from that plz
+grid.sp <- as_Spatial(grid)
+
+#Rook contig plz! We only want bordering cells
+neighbours <- poly2nb(grid.sp, queen=F)
+
+Rcpp::sourceCpp("simfunctions.cpp")
+
+#This is *much* slower! Kind of understandably
+x <- optimiseWEIGHTEDAverageAbsoluteContiguousDifference(
+  attribute=grid$peeps1, secondpop=grid$peeps2, nblist=neighbours,
+  maximise = FALSE, breakval = 200000, cutoff = 0)
+
+grid$opt <- x$attribute
+# plot(grid[,'opt'])
+saveRDS(grid,'local/gridopt1.rds')
+
+#Hmm. Not sure what pattern is emerging there. Let's run overnight and see!
+#Though computer might turn itself off, but let's see.
 
 
 

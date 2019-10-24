@@ -340,7 +340,7 @@ double getAverageAbsoluteContiguousDifference(NumericVector attribute, int ncol,
     //If on first column, get contiguous value round torus-left
     if(i % ncol == 0){
       thisACD = std::abs(attribute[i] - attribute[i + (ncol-1)]);
-      Rcout<<"i: "<<i<<", left side torus. Attribute here: "<<attribute[i]<<", attribute neighbour: "<<attribute[i + (ncol-1)]<<"\n";
+      // Rcout<<"i: "<<i<<", left side torus. Attribute here: "<<attribute[i]<<", attribute neighbour: "<<attribute[i + (ncol-1)]<<"\n";
       
     } else {
       thisACD = std::abs(attribute[i] - attribute[i - 1]);
@@ -564,6 +564,9 @@ NumericVector getRepeatedAACDfromPermutedCells(NumericVector attribute, int ncol
 
 
 
+
+
+
 // [[Rcpp::export]]
 void testNeighbours(Rcpp::List nblist, int index){
   
@@ -576,5 +579,368 @@ void testNeighbours(Rcpp::List nblist, int index){
 }
 
 
+
+
+
+
+//take in cell atttibutes
+//And that cell's list of neighbours
+// [[Rcpp::export]]
+void displayAllNeighbours(NumericVector attribute, Rcpp::List nblist){
+  
+  //cycle through all attributes
+  for(int i = 0; i < attribute.size(); ++i){
+  
+    NumericVector nbs = nblist[i];
+    Rcout<<"i:"<<i<<", neighbour list: ";
+  
+    //Cycle through all neighbours
+    for(int j = 0; j < nbs.size(); ++j){
+      Rcout<<nbs[j]<<" ";
+    }
+    
+    Rcout<<"\n";
+      
+  }
+  
+}
+
+
+
+
+
+
+
+// [[Rcpp::export]]
+std::vector<double> weightedNeighbourIndex(NumericVector attribute, Rcpp::List nblist){
+  
+  //Vector for storing the actual weighted score
+  //Want to look at that
+  //https://stackoverflow.com/questions/30129968/how-to-initialize-numericvector-to-a-specific-size-after-it-has-been-declared
+  // NumericVector indexscore = NumericVector(attribute.size());
+  std::vector<double> indexscore;
+  
+  
+  //cycle through all attributes
+  for(int i = 0; i < attribute.size(); ++i){
+    
+    //Neighbours of i
+    NumericVector nbs_of_i = nblist[i];
+    
+    //Cycle through all of i's neighbours. i and j make dyads/pairs we want to check in turn
+    for(int j = 0; j < nbs_of_i.size(); ++j){
+      
+      // Rcout<<nbs_of_i[j]<<"\n";
+      
+      //Get neighbours of j (which are neighbours of this particular neighbour of i)
+      //SUBTRACT ONE! 
+      //The neighbours lists are indexed 1 to n in R.
+      //The correct index is going to be nbs_of_i[j]-1 innit?
+      NumericVector nbs_of_j = nblist[nbs_of_i[j]-1];
+      
+      
+      
+      
+      //Add ACD of the found pairs to this
+      std::vector<double> acds; 
+      
+      //cycle through neighbours of neighbours of cell j
+      for(int k = 0; k < nbs_of_j.size(); ++k){
+        
+        NumericVector nbs_of_j_neighbour = nblist[nbs_of_j[k]-1];
+        
+        //for each of those neighbours of this j neighbour
+        //See if it matches any neighbours of i
+        //These will be pairs we want to keep
+        //(though excluding j itself, which is also a neighbour of neighbour of j)
+        for(int m = 0; m < nbs_of_j_neighbour.size(); ++m){
+          
+          for(int n = 0; n < nbs_of_i.size(); ++n){
+            
+            if(nbs_of_j_neighbour[m]==nbs_of_i[n]){
+              
+              //Should exclude i 
+              //If we're looking at nbs_of_j when nbs_of_j=i
+              //And j when nbs_of_j_neighbour = j
+              //as i can be j neighbour and j can be neighbour of j neighbour
+              //Or possibly: neither index at m nor n should equal index at i or j. M and N are same value so only need to test one of those.
+              //Also have to exclude j neighbour being i
+              if(
+                ((nbs_of_j_neighbour[m]!=i+1 && nbs_of_j_neighbour[m]!=nbs_of_i[j])&&nbs_of_j[k]!=i+1)
+              ){
+              
+                // Rcout<<"Adjusted to start at 1: i:"<<i+1<<" j:"<<nbs_of_i[j]<<" j_nb:"<<nbs_of_j[k]<<" m: "<<nbs_of_j_neighbour[m]<<" n:"<<nbs_of_i[n]<<"\n";
+                
+                //Find ACD for that pair and add to vector
+                //indexed at  and either nbs_of_j_neighbour[m] or nbs_of_i[n]
+                acds.push_back(std::abs(attribute[nbs_of_j[k]-1] - attribute[nbs_of_i[n]-1]));
+                
+              
+              }//end if
+              
+            }//end if
+            
+          }//end for n
+          
+        }//end for m
+        
+      }//end for k
+      
+      
+      //Add ij ACD to the already-collected ACDs from the (max 2) neighbouring pairs
+      //double ij_ACD = std::abs(attribute[i] - attribute[nbs_of_i[j]-1]);
+      acds.push_back(std::abs(attribute[i] - attribute[nbs_of_i[j]-1]));
+      
+      //Add to weighted ACD measure index for this border
+      //Find average cos it'll vary in length
+      //Total first
+      // for(int i = 0; i < acds.size();++i){}
+      //https://stackoverflow.com/questions/3221812/how-to-sum-up-elements-of-a-c-vector
+      // double sum_of_elems = std::accumulate(acds.begin(), acds.end(), 0);
+      
+      //That didn't seem to work
+      double sum_of_elems = 0;
+      //https://stackoverflow.com/questions/7984955/what-is-wrong-with-my-for-loops-i-get-warnings-comparison-between-signed-and-u
+      //There are more complications in that thread
+      for(unsigned n = 0; n < acds.size(); ++n){
+        sum_of_elems += acds[n];
+      }
+        
+      
+      // Rcout<<sum_of_elems<<"\n";
+      
+      indexscore.push_back(sum_of_elems/static_cast<double>(acds.size()));
+      
+    }//end for j
+  }//end for i
+  
+  return indexscore;
+  
+}
+
+
+
+
+
+//Same as above but returning single value, the weighted AACD mean for the whole grid
+// [[Rcpp::export]]
+double getWeightedNeighbourIndexMean(NumericVector attribute, Rcpp::List nblist){
+
+  //Vector for storing the actual weighted score
+  //Want to look at that
+  //https://stackoverflow.com/questions/30129968/how-to-initialize-numericvector-to-a-specific-size-after-it-has-been-declared
+  // NumericVector indexscore = NumericVector(attribute.size());
+  std::vector<double> indexscore;
+
+  //cycle through all attributes
+  for(int i = 0; i < attribute.size(); ++i){
+
+    //Neighbours of i
+    NumericVector nbs_of_i = nblist[i];
+
+    //Cycle through all of i's neighbours. i and j make dyads/pairs we want to check in turn
+    for(int j = 0; j < nbs_of_i.size(); ++j){
+
+      // Rcout<<nbs_of_i[j]<<"\n";
+
+      //Get neighbours of j (which are neighbours of this particular neighbour of i)
+      //SUBTRACT ONE!
+      //The neighbours lists are indexed 1 to n in R.
+      //The correct index is going to be nbs_of_i[j]-1 innit?
+      NumericVector nbs_of_j = nblist[nbs_of_i[j]-1];
+
+
+
+
+      //Add ACD of the found pairs to this
+      std::vector<double> acds;
+
+      //cycle through neighbours of neighbours of cell j
+      for(int k = 0; k < nbs_of_j.size(); ++k){
+
+        NumericVector nbs_of_j_neighbour = nblist[nbs_of_j[k]-1];
+
+        //for each of those neighbours of this j neighbour
+        //See if it matches any neighbours of i
+        //These will be pairs we want to keep
+        //(though excluding j itself, which is also a neighbour of neighbour of j)
+        for(int m = 0; m < nbs_of_j_neighbour.size(); ++m){
+
+          for(int n = 0; n < nbs_of_i.size(); ++n){
+
+            if(nbs_of_j_neighbour[m]==nbs_of_i[n]){
+
+              //Should exclude i
+              //If we're looking at nbs_of_j when nbs_of_j=i
+              //And j when nbs_of_j_neighbour = j
+              //as i can be j neighbour and j can be neighbour of j neighbour
+              //Or possibly: neither index at m nor n should equal index at i or j. M and N are same value so only need to test one of those.
+              //Also have to exclude j neighbour being i
+              if(
+                ((nbs_of_j_neighbour[m]!=i+1 && nbs_of_j_neighbour[m]!=nbs_of_i[j])&&nbs_of_j[k]!=i+1)
+              ){
+
+                // Rcout<<"Adjusted to start at 1: i:"<<i+1<<" j:"<<nbs_of_i[j]<<" j_nb:"<<nbs_of_j[k]<<" m: "<<nbs_of_j_neighbour[m]<<" n:"<<nbs_of_i[n]<<"\n";
+
+                //Find ACD for that pair and add to vector
+                //indexed at  and either nbs_of_j_neighbour[m] or nbs_of_i[n]
+                acds.push_back(std::abs(attribute[nbs_of_j[k]-1] - attribute[nbs_of_i[n]-1]));
+
+
+              }//end if
+
+            }//end if
+
+          }//end for n
+
+        }//end for m
+
+      }//end for k
+
+
+      //Add ij ACD to the already-collected ACDs from the (max 2) neighbouring pairs
+      //double ij_ACD = std::abs(attribute[i] - attribute[nbs_of_i[j]-1]);
+      acds.push_back(std::abs(attribute[i] - attribute[nbs_of_i[j]-1]));
+
+      //Add to weighted ACD measure index for this border
+      //Find average cos it'll vary in length
+      //Total first
+      // for(int i = 0; i < acds.size();++i){}
+      //https://stackoverflow.com/questions/3221812/how-to-sum-up-elements-of-a-c-vector
+      // double sum_of_elems = std::accumulate(acds.begin(), acds.end(), 0);
+
+      //That didn't seem to work
+      double sum_of_elems = 0;
+      //https://stackoverflow.com/questions/7984955/what-is-wrong-with-my-for-loops-i-get-warnings-comparison-between-signed-and-u
+      //There are more complications in that thread
+      for(unsigned n = 0; n < acds.size(); ++n){
+        sum_of_elems += acds[n];
+      }
+
+
+      // Rcout<<sum_of_elems<<"\n";
+
+      indexscore.push_back(sum_of_elems/static_cast<double>(acds.size()));
+
+    }//end for j
+  }//end for i
+
+
+  //get mean index score
+  double sum_of_elems = 0;
+  for(unsigned n = 0; n < indexscore.size(); ++n){
+    sum_of_elems += indexscore[n];
+  }
+
+  return sum_of_elems / static_cast<double>(indexscore.size());
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+//Hack until we make these generic
+// [[Rcpp::export]]
+List optimiseWEIGHTEDAverageAbsoluteContiguousDifference(
+    NumericVector attribute, NumericVector secondpop, Rcpp::List nblist,
+     bool maximise, int breakval, double cutoff){
+
+  //bool maximise: if true, maximise otherwise minimise
+
+
+  //set up
+  double newACD = 1;
+
+  int printACD = 0;
+
+  double lastACD = getWeightedNeighbourIndexMean(attribute,nblist);
+
+
+  do{
+
+    //copy of attribute to swap zone values around
+    NumericVector replace_attr = clone(attribute);
+    NumericVector replace_secondpop = clone(secondpop);
+
+    //Two indexes for zones to swap values
+    //Doesn't matter if we occasionally replace with self
+    int swap1 = rand() % replace_attr.size();
+    int swap2 = rand() % replace_attr.size();
+
+    //pull one out so we can overwrite
+    double swapval1 = replace_attr[swap1];
+
+    replace_attr[swap1] = replace_attr[swap2];
+    replace_attr[swap2] = swapval1;
+
+    //Repeat for the second population so that DI values remain fixed
+    swapval1 = replace_secondpop[swap1];
+
+    replace_secondpop[swap1] = replace_secondpop[swap2];
+    replace_secondpop[swap2] = swapval1;
+
+
+
+    newACD = getWeightedNeighbourIndexMean(replace_attr,nblist);
+
+    if(maximise){
+
+      if(newACD > lastACD){
+
+        lastACD = newACD;
+        attribute = clone(replace_attr);
+        secondpop = clone(replace_secondpop);
+
+        if(++printACD % 200 == 0){
+          Rcout<<newACD<<"\n";
+        }
+
+      }//end if newACD >
+
+    }//end if maximise
+    //if minimising
+    else {
+
+      if(newACD < lastACD){
+
+        lastACD = newACD;
+        attribute = clone(replace_attr);
+        secondpop = clone(replace_secondpop);
+
+        if(++printACD % 100 == 0){
+          Rcout<<breakval<<": "<<newACD<<"\n";
+        }
+
+      }//end if newACD >
+
+    }
+
+
+    if(breakval == 1){
+      Rcout<<"Break point reached.\n";
+    }
+
+
+
+  }//end do
+  while(--breakval > 0);
+  //while(--breakval > 0 && !withinthreshold);
+
+  //Return both optimised attribute
+  //And second pop values tagging along, having been swapped too
+  //To keep DI values identical
+
+  //return attribute;
+  return List::create(_["attribute"] = attribute,_["secondpop"] = secondpop);
+
+}
 
 

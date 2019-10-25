@@ -526,8 +526,8 @@ write_csv(meanz,'saves/di_vs_aacd.csv')
 #So that there are proportion values spread out evenly from 0 to 1
 #So it's possible to get smooth surfaces
 #Minimising AACD for this kind of DI should give us that
-ncol = 100
-nrow = 100
+ncol = 50
+nrow = 50
 
 #Set all this up with the same geography.
 grid <- raster(nrow = nrow, ncol = ncol) %>% rasterToPolygons() %>% as("sf")
@@ -553,14 +553,14 @@ grid$minimised <- min$attribute
 plot(grid[,'minimised'])
 
 #So that's the pattern we're familiar with
-saveRDS(grid,'saves/grid100x100_uniformprop_w_minimised.rds')
+# saveRDS(grid,'saves/grid100x100_uniformprop_w_minimised.rds')
 
 
 #Put more colours in
 x <- tm_shape(grid) +
   tm_fill("minimised", n=30, legend.show = F)
 
-tmap_save(tm = x, filename = 'outputs/100x100_DI_uniform_minimise.png', width=10,height=10)
+tmap_save(tm = x, filename = 'outputs/50x50_DI_uniform_minimise.png', width=10,height=10)
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1090,8 +1090,8 @@ mean(x)
 #So that there are proportion values spread out evenly from 0 to 1
 #So it's possible to get smooth surfaces
 #Minimising AACD for this kind of DI should give us that
-ncol = 100
-nrow = 100
+ncol = 20
+nrow = 20
 
 #Set all this up with the same geography.
 grid <- raster(nrow = nrow, ncol = ncol) %>% rasterToPolygons() %>% as("sf")
@@ -1115,14 +1115,18 @@ Rcpp::sourceCpp("simfunctions.cpp")
 #This is *much* slower! Kind of understandably
 x <- optimiseWEIGHTEDAverageAbsoluteContiguousDifference(
   attribute=grid$peeps1, secondpop=grid$peeps2, nblist=neighbours,
-  maximise = FALSE, breakval = 200000, cutoff = 0)
+  maximise = TRUE, breakval = 150000, cutoff = 0)
 
 grid$opt <- x$attribute
-# plot(grid[,'opt'])
-saveRDS(grid,'local/gridopt1.rds')
+plot(grid[,'opt'])
+saveRDS(grid,'local/gridopt1_20x20_maximised.rds')
 
 #Hmm. Not sure what pattern is emerging there. Let's run overnight and see!
 #Though computer might turn itself off, but let's see.
+x <- tm_shape(grid) +
+  tm_fill("opt", n=30, legend.show = F)
+
+tmap_save(tm = x, filename = 'outputs/20x20_DI_uniform_WEIGHTED1_maximised.png', width=10,height=10)
 
 
 

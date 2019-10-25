@@ -900,7 +900,7 @@ List optimiseWEIGHTEDAverageAbsoluteContiguousDifference(
         secondpop = clone(replace_secondpop);
 
         if(++printACD % 200 == 0){
-          Rcout<<newACD<<"\n";
+          Rcout<<breakval<<": "<<newACD<<"\n";
         }
 
       }//end if newACD >

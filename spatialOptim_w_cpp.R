@@ -586,20 +586,56 @@ gridsmooth$peeps1 <- c(0.05,0.2,0.4,0.6,0.8,0.8,0.8,0.05,0.2,0.4,0.6,0.8,0.8,0.8
 gridsmooth$peeps2 <- 1 - c(0.05,0.2,0.4,0.6,0.8,0.8,0.8,0.05,0.2,0.4,0.6,0.8,0.8,0.8,0.05,0.2,0.4,0.6,0.6,0.8,0.8,0.05,0.2,0.4,0.6,0.6,0.6,0.6,0.05,0.2,0.4,0.4,0.4,0.4,0.4,0.05,0.2,0.2,0.2,0.2,0.2,0.2,0.05,0.2,0.2,0.2,0.2,0.2,0.2,0.05,0.05,0.05,0.05,0.05,0.05,0.05)
 plot(gridsmooth)
 
+#Check on cutoffs
+cutoffz <- gridsmooth
+cutoffz$peeps1 <- ifelse(cutoffz$peeps1 < 0.25,-1,cutoffz$peeps1)
+plot(cutoffz)
+
 gridedges$peeps1 <- c(0.2,0.4,0.4,0.4,0.4,0.4,0.2,0.2,0.2,0.2,0.05,0.2,0.2,0.4,0.2,0.2,0.05,0.8,0.05,0.6,0.4,0.2,0.05,0.8,0.8,0.8,0.05,0.4,0.2,0.05,0.8,0.8,0.8,0.05,0.4,0.2,0.05,0.05,0.8,0.05,0.05,0.6,0.2,0.6,0.05,0.05,0.05,0.6,0.2,0.2,0.2,0.6,0.6,0.6,0.6,0.2)
 gridedges$peeps2 <- 1- c(0.2,0.4,0.4,0.4,0.4,0.4,0.2,0.2,0.2,0.2,0.05,0.2,0.2,0.4,0.2,0.2,0.05,0.8,0.05,0.6,0.4,0.2,0.05,0.8,0.8,0.8,0.05,0.4,0.2,0.05,0.8,0.8,0.8,0.05,0.4,0.2,0.05,0.05,0.8,0.05,0.05,0.6,0.2,0.6,0.05,0.05,0.05,0.6,0.2,0.2,0.2,0.6,0.6,0.6,0.6,0.2)
 plot(gridedges)
 
 #What's current AACD for those two?
-smoothAACD <- getAverageAbsoluteContiguousDifference(gridsmooth$peeps1, ncol = ncol, nrow = nrow, cutoff=0)
-edgeAACD <- getAverageAbsoluteContiguousDifference(gridedges$peeps1, ncol = ncol, nrow = nrow,cutoff=0)
+Rcpp::sourceCpp("simfunctions.cpp")
+# smoothAACD <- getAverageAbsoluteContiguousDifference(gridsmooth$peeps1, ncol = ncol, nrow = nrow, cutoff=0,torus=T)
+# edgeAACD <- getAverageAbsoluteContiguousDifference(gridedges$peeps1, ncol = ncol, nrow = nrow,cutoff=0,torus=T)
+
+#Check original version is same, new one with torus option didn't break. Tick.
+#ORIG_getAverageAbsoluteContiguousDifference(gridsmooth$peeps1, ncol = ncol, nrow = nrow, cutoff=0)
+#ORIG_getAverageAbsoluteContiguousDifference(gridedges$peeps1, ncol = ncol, nrow = nrow,cutoff=0)
+
+#Nontorus
+smoothAACD <- getAverageAbsoluteContiguousDifference(gridsmooth$peeps1, ncol = ncol, nrow = nrow, cutoff=0, torus=F)
+edgeAACD <- getAverageAbsoluteContiguousDifference(gridedges$peeps1, ncol = ncol, nrow = nrow,cutoff=0,torus=F)
+
+
+
+#While here: check using neighbours finds the same result
+##Get neighbour list
+# gridedges.sp <- as_Spatial(gridedges)
+# gridsmooth.sp <- as_Spatial(gridsmooth)
+# 
+# #Rook contig plz! We only want bordering cells
+# gridedges.neighbours <- poly2nb(gridedges.sp, queen=F)
+# gridsmooth.neighbours <- poly2nb(gridsmooth.sp, queen=F)
+# 
+# #TICK
+# getNeighbourIndexAACD(attribute = gridsmooth$peeps1,nblist = gridsmooth.neighbours)
+# getNeighbourIndexAACD(attribute = gridedges$peeps1,nblist = gridedges.neighbours)
+
+
+
 
 actualAACDs <- data.frame(type = c('smooth','edge'), AACD = c(smoothAACD,edgeAACD))
 
 #Randomly permute grid cells, get AACD from permutes.
-#Smoothperm. Nice. 
-smoothperm = getRepeatedAACDfromPermutedCells(attribute = gridsmooth$peeps1, ncol = ncol, nrow = nrow, numreps = 200000, cutoff=0)
-edgeperm = getRepeatedAACDfromPermutedCells(attribute = gridedges$peeps1, ncol = ncol, nrow = nrow, numreps = 200000, cutoff=0)
+#Smoothperm. Nice.
+#mean is roughly...(same for both cos same cells values just repositioned)
+#Torus not huge diff to randomised
+mean(getRepeatedAACDfromPermutedCells(attribute = gridsmooth$peeps1, ncol = ncol, nrow = nrow, numreps = 2000, cutoff=0, torus=F))
+
+smoothperm = getRepeatedAACDfromPermutedCells(attribute = gridsmooth$peeps1, ncol = ncol, nrow = nrow, numreps = 200000, cutoff=0, torus=F)
+edgeperm = getRepeatedAACDfromPermutedCells(attribute = gridedges$peeps1, ncol = ncol, nrow = nrow, numreps = 200000, cutoff=0, torus=F)
 
 #Plot details for those two.
 both <- data.frame(smooth = smoothperm, edge = edgeperm) %>% 
@@ -617,7 +653,7 @@ ggplot(mean_n_quantz, aes(x = type, y = mean)) +
   coord_cartesian(ylim = c(0,1.5)) +
   geom_point(data = actualAACDs, aes(x = type, y = AACD), size = 2, colour = 'blue')
 
-ggsave('outputs/smooth_v_edges_w_actualAACDvalues.png', width = 6, height = 4)
+ggsave('outputs/smooth_v_edges_w_actualAACDvalues_nontorus.png', width = 6, height = 4)
 
 
 #Actually, that plot - we only need one of the mean/error bars, they're
@@ -696,15 +732,15 @@ for(cutoff in seq(from=0,to=0.75,by=0.05)){
   
   print(cutoff)
 
-  smoothAACD <- getAverageAbsoluteContiguousDifference(gridsmooth$peeps1, ncol = ncol, nrow = nrow, cutoff = cutoff)
-  edgeAACD <- getAverageAbsoluteContiguousDifference(gridedges$peeps1, ncol = ncol, nrow = nrow, cutoff = cutoff)
+  smoothAACD <- getAverageAbsoluteContiguousDifference(gridsmooth$peeps1, ncol = ncol, nrow = nrow, cutoff = cutoff, torus = F)
+  edgeAACD <- getAverageAbsoluteContiguousDifference(gridedges$peeps1, ncol = ncol, nrow = nrow, cutoff = cutoff, torus = F)
   
   actualAACDs <- data.frame(type = c('smooth','edge'), AACD = c(smoothAACD,edgeAACD), cutoff = cutoff)
   
   #Randomly permute grid cells, get AACD from permutes.
   #Smoothperm. Nice. 
-  smoothperm = getRepeatedAACDfromPermutedCells(attribute = gridsmooth$peeps1, ncol = ncol, nrow = nrow, numreps = 200000, cutoff = cutoff)
-  edgeperm = getRepeatedAACDfromPermutedCells(attribute = gridedges$peeps1, ncol = ncol, nrow = nrow, numreps = 200000, cutoff = cutoff)
+  smoothperm = getRepeatedAACDfromPermutedCells(attribute = gridsmooth$peeps1, ncol = ncol, nrow = nrow, numreps = 200000, cutoff = cutoff,torus=F)
+  edgeperm = getRepeatedAACDfromPermutedCells(attribute = gridedges$peeps1, ncol = ncol, nrow = nrow, numreps = 200000, cutoff = cutoff, torus=F)
   
   #Plot details for those two.
   both <- data.frame(smooth = smoothperm, edge = edgeperm) %>% 
@@ -733,7 +769,7 @@ ggplot(permallz, aes(x = type, y = mean)) +
   geom_point(data = actualallz, aes(x = type, y = AACD), size = 2, colour = 'blue') +
   facet_wrap(~cutoff, nrow = 1)
 
-ggsave('outputs/smooth_v_edges_w_actualAACDvalues_cutoffs.png', width = 12, height = 4)
+ggsave('outputs/smooth_v_edges_w_actualAACDvalues_cutoffs_notorus.png', width = 12, height = 4)
 
 
 
@@ -1069,6 +1105,25 @@ y <- weightedNeighbourIndex(gridsmooth$peeps1,neighbours)
 mean(x)
 mean(y)
 
+#compare to orig
+getNeighbourIndexAACD(gridedges$peeps1,neighbours)['AACD']
+getNeighbourIndexAACD(gridsmooth$peeps1,neighbours)['AACD']
+
+
+#Need to compare that to null dist, obv
+nullz <- list()
+for(i in 1:10000){
+  nullz[[length(nullz)+1]] <- mean(weightedNeighbourIndex(sample(gridedges$peeps1,length(gridedges$peeps1),replace = F),
+                                                          neighbours))
+}
+
+nullz <- unlist(nullz)
+
+ggplot(data.frame(null = nullz), aes(x=nullz)) +
+  geom_density() +
+  geom_vline(xintercept = mean(x), colour='red') +
+  geom_vline(xintercept = mean(y), colour='green')
+
 
 #Ooo that looks quite promising!
 #Now we want to maximise / minimise to see what we get
@@ -1079,6 +1134,18 @@ Rcpp::sourceCpp("simfunctions.cpp")
 #Check... tick
 getWeightedNeighbourIndexMean(gridedges$peeps1,neighbours)
 mean(x)
+
+
+
+#TEST USING JUST ONE IJ PAIR PER CELL
+Rcpp::sourceCpp("simfunctions.cpp")
+getWeightedNeighbourIndexMeanKeepOnlyMaxACDperSquare(gridedges$peeps1,neighbours)
+getWeightedNeighbourIndexMeanKeepOnlyMaxACDperSquare(gridsmooth$peeps1,neighbours)
+
+#And what's random?
+getWeightedNeighbourIndexMeanKeepOnlyMaxACDperSquare(sample(gridsmooth$peeps1,length(gridsmooth$peeps1),replace = F),neighbours)
+
+
 
 
 
@@ -1127,6 +1194,382 @@ x <- tm_shape(grid) +
   tm_fill("opt", n=30, legend.show = F)
 
 tmap_save(tm = x, filename = 'outputs/20x20_DI_uniform_WEIGHTED1_maximised.png', width=10,height=10)
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#USE ONLY ONE SIDE PER CELL: OPTIMISE WEIGHTED WITH UNIFORM 50*50 GRID----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+ncol = 20
+nrow = 20
+
+#Set all this up with the same geography.
+grid <- raster(nrow = nrow, ncol = ncol) %>% rasterToPolygons() %>% as("sf")
+
+
+grid$peeps1 <- runif(nrow(grid))
+grid$peeps2 <- 1-grid$peeps1
+hist(grid$peeps1)#Evenly spread from 0 to 1
+
+#NOISE
+plot(grid[,'peeps1'])
+
+#Neighbour list from that plz
+grid.sp <- as_Spatial(grid)
+
+#Rook contig plz! We only want bordering cells
+neighbours <- poly2nb(grid.sp, queen=F)
+
+Rcpp::sourceCpp("simfunctions.cpp")
+
+#This is *much* slower! Kind of understandably
+x <- optimiseWEIGHTED_AACD_pick_only_one_sidepercell(
+  attribute=grid$peeps1, secondpop=grid$peeps2, nblist=neighbours,
+  maximise = F, breakval = 150000, cutoff = 0)
+
+grid$opt <- x$attribute
+plot(grid[,'opt'])
+saveRDS(grid,'local/gridopt1_20x20_minimised_onlyonesidepercell.rds')
+
+#Hmm. Not sure what pattern is emerging there. Let's run overnight and see!
+#Though computer might turn itself off, but let's see.
+x <- tm_shape(grid) +
+  tm_fill("opt", n=30, legend.show = F)
+
+tmap_save(tm = x, filename = 'outputs/gridopt1_20x20_minimised_onlyonesidepercell.png', width=10,height=10)
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#CREATE LARGER VERSIONS OF LITTLE ABSTRACT CITIES----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#Plan: create original, just scale up
+ncol = 7
+nrow = 8
+
+#Set all this up with the same geography.
+#We have two versions to do.
+gridsmooth <- raster(nrow = nrow, ncol = ncol)
+
+gridedges <- raster(nrow = nrow, ncol = ncol) 
+
+values(gridsmooth) <- c(0.05,0.2,0.4,0.6,0.8,0.8,0.8,0.05,0.2,0.4,0.6,0.8,0.8,0.8,0.05,0.2,0.4,0.6,0.6,0.8,0.8,0.05,0.2,0.4,0.6,0.6,0.6,0.6,0.05,0.2,0.4,0.4,0.4,0.4,0.4,0.05,0.2,0.2,0.2,0.2,0.2,0.2,0.05,0.2,0.2,0.2,0.2,0.2,0.2,0.05,0.05,0.05,0.05,0.05,0.05,0.05)
+values(gridedges) <- c(0.2,0.4,0.4,0.4,0.4,0.4,0.2,0.2,0.2,0.2,0.05,0.2,0.2,0.4,0.2,0.2,0.05,0.8,0.05,0.6,0.4,0.2,0.05,0.8,0.8,0.8,0.05,0.4,0.2,0.05,0.8,0.8,0.8,0.05,0.4,0.2,0.05,0.05,0.8,0.05,0.05,0.6,0.2,0.6,0.05,0.05,0.05,0.6,0.2,0.2,0.2,0.6,0.6,0.6,0.6,0.2)
+
+#tick
+plot(gridedges)
+plot(gridsmooth)
+
+#Ah ha
+#https://stackoverflow.com/questions/32278825/how-to-change-the-resolution-of-a-raster-layer-in-r
+#Though seems to be opposite way round to what that says
+gridsmooth <- disaggregate(gridsmooth, fact=7)
+gridedges <- disaggregate(gridedges, fact=7)
+
+#So that's not smooth, just larger
+
+gridsmooth <- gridsmooth %>% rasterToPolygons() %>% as("sf")
+gridsmooth$id = 1:nrow(gridsmooth)
+
+gridedges <- gridedges %>% rasterToPolygons() %>% as("sf")
+gridedges$id = 1:nrow(gridedges)
+#tick
+plot(gridedges)
+
+gridsmooth <- gridsmooth %>% rename(peeps1 = layer)
+gridedges <- gridedges %>% rename(peeps1 = layer)
+
+Rcpp::sourceCpp("simfunctions.cpp")
+
+#Nontorus
+smoothAACD <- getAverageAbsoluteContiguousDifference(gridsmooth$peeps1, ncol = ncol, nrow = nrow, cutoff=0, torus=F)
+edgeAACD <- getAverageAbsoluteContiguousDifference(gridedges$peeps1, ncol = ncol, nrow = nrow,cutoff=0,torus=F)
+
+actualAACDs <- data.frame(type = c('smooth','edge'), AACD = c(smoothAACD,edgeAACD))
+
+#Randomly permute grid cells, get AACD from permutes.
+#Smoothperm. Nice.
+#mean is roughly...(same for both cos same cells values just repositioned)
+#Torus not huge diff to randomised
+mean(getRepeatedAACDfromPermutedCells(attribute = gridsmooth$peeps1, ncol = ncol, nrow = nrow, numreps = 2000, cutoff=0, torus=F))
+
+smoothperm = getRepeatedAACDfromPermutedCells(attribute = gridsmooth$peeps1, ncol = ncol, nrow = nrow, numreps = 10000, cutoff=0, torus=F)
+edgeperm = getRepeatedAACDfromPermutedCells(attribute = gridedges$peeps1, ncol = ncol, nrow = nrow, numreps = 10000, cutoff=0, torus=F)
+
+#Plot details for those two.
+both <- data.frame(smooth = smoothperm, edge = edgeperm) %>% 
+  gather(key = type, value = AACD)
+
+mean_n_quantz <- both %>% 
+  group_by(type) %>% 
+  summarise(mean = mean(AACD), sd = sd(AACD), `2.5%` = quantile(AACD,0.025), `97.5%` = quantile(AACD,0.975))
+
+ggplot(mean_n_quantz, aes(x = type, y = mean)) +
+  geom_point() +
+  geom_errorbar(aes(x = type, ymin = `2.5%`, ymax = `97.5%`)) +
+  xlab('grid arrangement') +
+  ylab('AACD permute: mean & 95% quantiles') +
+  coord_cartesian(ylim = c(0,1.5)) +
+  geom_point(data = actualAACDs, aes(x = type, y = AACD), size = 2, colour = 'blue')
+
+
+#Well that works less well!
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#REAL GEOGRAPHY WITH CUTOFF----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#Get somewhere. Err. London LSOAs?
+lsoas <- st_read('F:/Data/MapPolygons/England/2011/England_lsoa_2011_clipped/england_lsoa_2011_clipped.shp')
+
+#Oh goddam it'll all be London local authority names...
+shef <- lsoas %>% 
+  filter(grepl(pattern = 'Sheffield',x = .$name))
+
+#Ah, we need an attribute. Did we have some of those elsewhere for Sheffield?
+cob <- read_csv('C:/Users/Dan Olner/Dropbox/SheffieldMethodsInstitute/3D_printing2/data/countryOfBirth_Y&H_LSOA.csv')
+
+#345 seems like enough to be going with
+#plot(st_geometry(shef))
+
+shef.sp <- as_Spatial(shef)
+
+#Rook contig plz! We only want bordering cells
+neighbours <- poly2nb(shef.sp, queen=F)
+
+neighbours[[25]]
+
+Rcpp::sourceCpp("simfunctions.cpp")
+displayAllNeighbours(shef.sp$code,neighbours)
+
+
+#Via 3D printing script
+#We want all of shef if poss, plz
+cob <- read_csv('C:/Users/Dan Olner/Dropbox/SheffieldMethodsInstitute/3D_printing2/data/countryOfBirth_Y&H_LSOA.csv')
+
+#Tick
+table(shef.sp$code %in% cob$LSOA11CD)
+
+#Subset to Sheffield
+cob <- cob[cob$LSOA11CD %in% shef.sp$code,]
+
+#tidy to make easier to read
+names(cob) <- gsub('; measures: Value','', names(cob))
+
+#non-white is just 'all categories' minus UK (include all UK)
+cob$nonUK <- cob$`Country of Birth: All categories: Country of birth` - 
+  (cob$`Country of Birth: Europe: United Kingdom: Total` +
+     cob$`Country of Birth: Europe: Great Britain not otherwise specified` +
+     cob$`Country of Birth: Europe: United Kingdom not otherwise specified`)
+
+#as % of zone pop
+cob$nonUKZoneProp <- (cob$nonUK/cob$`Country of Birth: All categories: Country of birth`)*100
+hist(cob$nonUKZoneProp)
+
+#merge with geography - keep only the column we want for now.
+#cob_geo <- merge(lsoas[,c('code')], cob[,c('LSOA11CD','nonUKZoneProp')], by.x = 'code', by.y = 'LSOA11CD')
+
+#Add to shef.sp
+shef.sp.cob <- merge(shef.sp, cob[,c('LSOA11CD','nonUKZoneProp')], by.x = 'code', by.y = 'LSOA11CD')
+
+#Does that look right? Tick.
+shef.sf <- st_as_sf(shef.sp.cob)
+plot(shef.sf[,'nonUKZoneProp'])
+
+
+Rcpp::sourceCpp("simfunctions.cpp")
+rez <- getNeighbourIndexAACD(shef.sf$nonUKZoneProp, neighbours)[['AACD']]
+getNeighbourIndexAACD(sample(shef.sf$nonUKZoneProp,length(shef.sf$nonUKZoneProp),replace=F), neighbours)[['AACD']]
+
+
+#OK, so just a little quick permute test to get a mean / null dist for that
+nullz <- list()
+for(i in 1:5000){
+  print(i)
+  nullz[[length(nullz)+1]] <- getNeighbourIndexAACD(sample(shef.sf$nonUKZoneProp,length(shef.sf$nonUKZoneProp),replace=F), neighbours)
+}
+
+nullz <- unlist(nullz)
+
+ggplot(data.frame(means = nullz), aes(x = means)) +
+  geom_density() +
+  geom_vline(xintercept = rez, colour = 'red')
+
+
+
+
+Rcpp::sourceCpp("simfunctions.cpp")
+
+#Try optimising
+minz <- optimiseGetNeighbourIndexAACD(attribute = shef.sf$nonUKZoneProp, nblist = neighbours,maximise = F,
+                                      breakval = 200000,cutoff = 0)
+maxz <- optimiseGetNeighbourIndexAACD(attribute = shef.sf$nonUKZoneProp, nblist = neighbours,maximise = T,
+                                      breakval = 200000,cutoff = 0)
+
+minz_from_random <- optimiseGetNeighbourIndexAACD(attribute = sample(shef.sf$nonUKZoneProp,length(shef.sf$nonUKZoneProp)), 
+                                                  nblist = neighbours,maximise = F,
+                                      breakval = 200000,cutoff = 0)
+
+#Maximum reached quite quickly
+maxz_from_random <- optimiseGetNeighbourIndexAACD(attribute = sample(shef.sf$nonUKZoneProp,length(shef.sf$nonUKZoneProp)), 
+                                                  nblist = neighbours,maximise = T,
+                                      breakval = 200000,cutoff = 0)
+
+
+shef.sf$minz <- minz
+shef.sf$maxz <- maxz
+shef.sf$minz_from_random <- minz_from_random
+shef.sf$maxz_from_random <- maxz_from_random
+plot(shef.sf[,c('minz')])
+plot(shef.sf[,c('maxz')])
+plot(shef.sf[,c('minz_from_random')])
+plot(shef.sf[,c('maxz_from_random')])
+
+#The west tends to end up high I suspect cos it has a lot of borders - 
+#that maximises ACD if it's v different from surrounding.
+getNeighbourIndexAACD(shef.sf$nonUKZoneProp, neighbours)[['AACD']]
+#Mean of randomised
+getNeighbourIndexAACD(sample(shef.sf$nonUKZoneProp,length(shef.sf$nonUKZoneProp),replace=F), neighbours)[['AACD']]
+getNeighbourIndexAACD(shef.sf$minz, neighbours)[['AACD']]
+getNeighbourIndexAACD(shef.sf$maxz, neighbours)[['AACD']]
+
+
+
+
+#LOOK AT all pair ACD values to think about cutoff
+allz <- getNeighbourIndexAACD(shef.sf$nonUKZoneProp, neighbours)[['allACDs']]
+
+ggplot(data.frame(allz=allz), aes(x=allz))+
+  geom_density()
+
+#Ah now that's kind of interesting. Compare to min and max
+mindist <- getNeighbourIndexAACD(shef.sf$minz, neighbours)[['allACDs']]
+maxdist <- getNeighbourIndexAACD(shef.sf$maxz, neighbours)[['allACDs']]
+
+ggplot(data.frame(ACD=mindist), aes(x=ACD))+
+  geom_density()
+
+
+combo <- bind_rows(
+  data.frame(ACD = allz) %>% mutate(type = 'actual'),
+  data.frame(ACD = mindist) %>% mutate(type = 'min'),
+  data.frame(ACD = maxdist) %>% mutate(type = 'max')
+)
+
+
+ggplot(combo, aes(x=ACD, colour = type))+
+  geom_density()
+
+# ggplot(combo, aes(x=ACD, fill = type))+
+#   geom_histogram(position="dodge")
+
+
+
+#What does dist of ACDs look like for pretend city?
+Rcpp::sourceCpp("simfunctions.cpp")
+#(Already loaded in above)
+##Get neighbour list
+gridedges.sp <- as_Spatial(gridedges)
+gridsmooth.sp <- as_Spatial(gridsmooth)
+
+#Rook contig plz! We only want bordering cells
+gridedges.neighbours <- poly2nb(gridedges.sp, queen=F)
+gridsmooth.neighbours <- poly2nb(gridsmooth.sp, queen=F)
+
+#WHUT? Why are they different lengths?? Oh: cutoff should include 0==0. Drop any BELOW.
+#length(getNeighbourIndexAACD(attribute = gridsmooth$peeps1,nblist = gridsmooth.neighbours)[['allACDs']])
+#length(getNeighbourIndexAACD(attribute = gridedges$peeps1,nblist = gridedges.neighbours)[['allACDs']])
+smoothedge <- bind_rows(
+  data.frame(ACDs=getNeighbourIndexAACD(attribute = gridsmooth$peeps1,nblist = gridsmooth.neighbours)[['allACDs']],
+             type="smooth"),
+  data.frame(ACDs=getNeighbourIndexAACD(attribute = gridedges$peeps1,nblist = gridedges.neighbours)[['allACDs']],
+             type="edge")
+)
+
+ggplot(smoothedge, aes(x=ACDs,fill=type)) +
+  geom_histogram(position = "dodge",bins = 8)
+
+
+
+
+
+#TRY CUTOFF VALUE FOR SHEFFIELD, SEE WHAT THAT DOES TO POSITION OF ACTUAL VS NULL
+#Reminder: distribution of actual:
+ggplot(data.frame(allz=allz), aes(x=allz))+
+  geom_density()
+
+
+actualresults = list()
+permresults = list()
+
+#So if we try cutoffs from 0 to 10?
+for(cutoff in seq(from = 0, to = 10, by = 0.25)){
+  
+  print(cutoff)
+  
+  nullz <- list()
+  for(i in 1:5000){
+    nullz[[length(nullz)+1]] <- getNeighbourIndexAACD(sample(shef.sf$nonUKZoneProp,length(shef.sf$nonUKZoneProp),replace=F), neighbours,cutoff = cutoff)[['AACD']]
+  }
+  
+  nullz <- unlist(nullz)
+  
+  mean_n_quantz <- data.frame(
+    mean = mean(nullz), sd = sd(nullz), `2.5%` = quantile(nullz,0.025), `97.5%` = quantile(nullz,0.975),
+    cutoff = cutoff
+  )
+    
+  permresults[[length(permresults)+1]] <- mean_n_quantz
+  
+  #Actual result
+  actualresults[[length(actualresults)+1]] <- data.frame(
+    AACD = getNeighbourIndexAACD(shef.sf$nonUKZoneProp, neighbours, cutoff = cutoff)[['AACD']], 
+    cutoff = cutoff)
+  
+}
+
+
+actualallz <- bind_rows(actualresults)
+permallz <- bind_rows(permresults)
+
+ggplot(permallz, aes(x = cutoff, y = mean)) +
+  geom_point() +
+  geom_errorbar(aes(x = cutoff, ymin = `X2.5.`, ymax = `X97.5.`)) +
+  xlab('cutoff') +
+  ylab('AACD permute: mean & 95% quantiles vs actual AACD') +
+  # coord_cartesian(ylim = c(0,1.5)) +
+  geom_point(data = actualallz, aes(x = cutoff, y = AACD), size = 2, colour = 'blue')
+
+ggsave('outputs/SHEFFIELD_NONUK_w_actualAACDvalues_cutoffs_notorus.png', width = 12, height = 4)
+
+
+
+
+
+
+
+
+
+
+
+
+nullz <- list()
+for(i in 1:5000){
+  print(i)
+  nullz[[length(nullz)+1]] <- getNeighbourIndexAACD(sample(shef.sf$nonUKZoneProp,length(shef.sf$nonUKZoneProp),replace=F), neighbours)
+}
+
+nullz <- unlist(nullz)
+
+ggplot(data.frame(means = nullz), aes(x = means)) +
+  geom_density() +
+  geom_vline(xintercept = rez, colour = 'red')
+
 
 
 

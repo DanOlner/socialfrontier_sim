@@ -310,10 +310,17 @@ double OLD___getAverageAbsoluteContiguousDifference(NumericVector attribute, int
 
 
 
+
+
+
+
+
+
+
 //Re-writing to allow for an ACD high-pass filter
 //(err, only finding values for ACDs above a given cutoff)
 // [[Rcpp::export]]
-double getAverageAbsoluteContiguousDifference(NumericVector attribute, int ncol, int nrow, double cutoff){
+double getAverageAbsoluteContiguousDifference(NumericVector attribute, int ncol, int nrow, double cutoff, bool torus = false){
   
   //For calculating average...
   //Though actually, should be number of neighbours/2 (so not getting A>B and B>A)
@@ -337,42 +344,66 @@ double getAverageAbsoluteContiguousDifference(NumericVector attribute, int ncol,
     //For cell, get absolute contiguous difference on four sides
     
     //LEFT SIDE
-    //If on first column, get contiguous value round torus-left
+    //If on first column (and using torus) get contiguous value round torus-left
     if(i % ncol == 0){
+      
+      if(torus){
+      
       thisACD = std::abs(attribute[i] - attribute[i + (ncol-1)]);
       // Rcout<<"i: "<<i<<", left side torus. Attribute here: "<<attribute[i]<<", attribute neighbour: "<<attribute[i + (ncol-1)]<<"\n";
+      
+      //Keep only if above cutoff
+        if(thisACD >= cutoff){
+          totalACD += thisACD;
+          ++totalborders;
+        }
+      
+      }
       
     } else {
       thisACD = std::abs(attribute[i] - attribute[i - 1]);
       // Rcout<<"i: "<<i<<", left side. Attribute here: "<<attribute[i]<<", attribute neighbour: "<<attribute[i - 1]<<"\n";
       //Rcout<<"i: "<<i<<", left side: "<<thisACD<<"\n";
+      
+      //Keep only if above cutoff
+      if(thisACD >= cutoff){
+        totalACD += thisACD;
+        ++totalborders;
+      }
+      
     }
-    
-    //Keep only if above cutoff
-    if(thisACD >= cutoff){
-      totalACD += thisACD;
-      ++totalborders;
-    }
-    
+  
     
     //RIGHT SIDE
     //If on last column, get contiguous value round torus-right
     if(i % ncol == ncol-1){
+      if(torus){
+      
       thisACD = std::abs(attribute[i] - attribute[i - (ncol-1)]);
       // Rcout<<"i: "<<i<<", right side torus. Attribute here: "<<attribute[i]<<", attribute neighbour: "<<attribute[i - (ncol-1)]<<"\n";
       //Rcout<<"i: "<<i<<", right side torus: "<<thisACD<<"\n";
+      //Keep only if above cutoff
+        if(thisACD >= cutoff){
+          totalACD += thisACD;
+          ++totalborders;
+        }
+      
+      }
+      
     } else {
       thisACD = std::abs(attribute[i] - attribute[i + 1]);
       // Rcout<<"i: "<<i<<", right side. Attribute here: "<<attribute[i]<<", attribute neighbour: "<<attribute[i + 1]<<"\n";
       //Rcout<<"i: "<<i<<", right side: "<<thisACD<<"\n";
+      //Keep only if above cutoff
+      if(thisACD >= cutoff){
+        totalACD += thisACD;
+        ++totalborders;
+      }
+      
     }
     
     
-    //Keep only if above cutoff
-    if(thisACD >= cutoff){
-      totalACD += thisACD;
-      ++totalborders;
-    }
+    
     
     
     
@@ -380,21 +411,30 @@ double getAverageAbsoluteContiguousDifference(NumericVector attribute, int ncol,
     //If on first row, get contiguous value round torus-top
     //If e.g. number of columns is ten and i is between 0 and 9...
     if(i < ncol){
+      if(torus){
       //eg. 2 + (10 * (10-1)) = 92
       thisACD = std::abs(attribute[i] - attribute[i + ( ncol * (nrow-1) )]);
       // Rcout<<"i: "<<i<<", top side torus. Attribute here: "<<attribute[i]<<", attribute neighbour: "<<attribute[i + ( ncol * (nrow-1) )]<<"\n";
       //Rcout<<"i: "<<i<<", top side torus: "<<thisACD<<"\n";
+      //Keep only if above cutoff
+        if(thisACD >= cutoff){
+          totalACD += thisACD;
+          ++totalborders;
+        }
+      
+      }
     } else {
       thisACD = std::abs(attribute[i] - attribute[i - ncol]);
       // Rcout<<"i: "<<i<<", top side. Attribute here: "<<attribute[i]<<", attribute neighbour: "<<attribute[i - ncol]<<"\n";
       //Rcout<<"i: "<<i<<", top side: "<<thisACD<<"\n";
+      //Keep only if above cutoff
+      if(thisACD >= cutoff){
+        totalACD += thisACD;
+        ++totalborders;
+      }
+      
     }
     
-    //Keep only if above cutoff
-    if(thisACD >= cutoff){
-      totalACD += thisACD;
-      ++totalborders;
-    }
     
     
     
@@ -402,26 +442,36 @@ double getAverageAbsoluteContiguousDifference(NumericVector attribute, int ncol,
     //If on last row, get contiguous value round torus-bottom
     //if e.g. for 10*10, i > 89 (between 90 and 99)
     if(i > (ncol * (nrow-1))-1 ){
+      if(torus){
       //eg. 92 - (10 * (10-1)) = 92
       thisACD = std::abs(attribute[i] - attribute[i - ( ncol * (nrow-1) )]);
       // Rcout<<"i: "<<i<<", bottom side torus. Attribute here: "<<attribute[i]<<", attribute neighbour: "<<attribute[i - ( ncol * (nrow-1) )]<<"\n";
       //Rcout<<"i: "<<i<<", bottom side torus: "<<thisACD<<"\n";
+      //Keep only if above cutoff
+      if(thisACD >= cutoff){
+        totalACD += thisACD;
+        ++totalborders;
+      }
+      
+      }
     } else {
       thisACD = std::abs(attribute[i] - attribute[i + ncol]);
       // Rcout<<"i: "<<i<<", bottom side. Attribute here: "<<attribute[i]<<", attribute neighbour: "<<attribute[i + ncol]<<"\n";
       //Rcout<<"i: "<<i<<", bottom side: "<<thisACD<<"\n";
+      
+      //Keep only if above cutoff
+      if(thisACD >= cutoff){
+        totalACD += thisACD;
+        ++totalborders;
+      }
+      
     }
-    
-    //Keep only if above cutoff
-    if(thisACD >= cutoff){
-      totalACD += thisACD;
-      ++totalborders;
-    }
-    
     
   }
   
   //return per-cell average ACD
+  //Note: mean works out the same if you're double-counting borders - values are repeated twice, but so are borders
+  //Works out same
   return totalACD / totalborders;
   
 }
@@ -539,7 +589,7 @@ List optimiseAverageAbsoluteContiguousDifference(
 
 
 // [[Rcpp::export]]
-NumericVector getRepeatedAACDfromPermutedCells(NumericVector attribute, int ncol, int nrow, int numreps, double cutoff){
+NumericVector getRepeatedAACDfromPermutedCells(NumericVector attribute, int ncol, int nrow, int numreps, double cutoff, bool torus){
   
   //Vector to store each results, length of number of reps
   //standard vector may be quicker?
@@ -553,7 +603,7 @@ NumericVector getRepeatedAACDfromPermutedCells(NumericVector attribute, int ncol
     
     shuffled = randomShuffle(attribute);
     
-    results[i] = getAverageAbsoluteContiguousDifference(shuffled,ncol,nrow,cutoff);
+    results[i] = getAverageAbsoluteContiguousDifference(shuffled,ncol,nrow,cutoff,torus);
     
   }
   
@@ -840,6 +890,142 @@ double getWeightedNeighbourIndexMean(NumericVector attribute, Rcpp::List nblist)
 
 
 
+//Version that uses only the max ACD per grid square for calculating, ignores the rest
+//Just for testing - would have to move to weighting later
+// [[Rcpp::export]]
+double getWeightedNeighbourIndexMeanKeepOnlyMaxACDperSquare(NumericVector attribute, Rcpp::List nblist){
+
+  //Vector for storing the actual weighted score
+  //Want to look at that
+  //https://stackoverflow.com/questions/30129968/how-to-initialize-numericvector-to-a-specific-size-after-it-has-been-declared
+  // NumericVector indexscore = NumericVector(attribute.size());
+  std::vector<double> indexscore;
+
+  //cycle through all attributes
+  for(int i = 0; i < attribute.size(); ++i){
+
+    //Neighbours of i
+    NumericVector nbs_of_i = nblist[i];
+    
+    //The i j neighbour pair we're going to use, dismissing the rest for now
+    int i_neigbourToUse = -1;
+    double thisACD=-1;
+
+    //Cycle through all of i's neighbours. i and j make dyads/pairs we want to check in turn
+    for(int j = 0; j < nbs_of_i.size(); ++j){
+
+      // Rcout<<nbs_of_i[j]<<"\n";
+      
+      //Find ACD for this ij pair. If higher than last, keep index
+      if((std::abs(attribute[i] - attribute[nbs_of_i[j]-1]))>thisACD  ){
+        thisACD = std::abs(attribute[i] - attribute[nbs_of_i[j]-1]);
+        i_neigbourToUse = j;
+      }
+      
+      
+    }//end for j
+
+      
+      //Now we continue with *just* that ij pair with the highest ACD
+      
+
+      //Get neighbours of highest j (which are neighbours of this particular neighbour of i)
+      //SUBTRACT ONE!
+      //The neighbours lists are indexed 1 to n in R.
+      //The correct index is going to be nbs_of_i[j]-1 innit?
+      NumericVector nbs_of_j = nblist[nbs_of_i[i_neigbourToUse]-1];
+
+
+      //Add ACD of the found pairs to this
+      std::vector<double> acds;
+
+      //cycle through neighbours of neighbours of cell j
+      for(int k = 0; k < nbs_of_j.size(); ++k){
+
+        NumericVector nbs_of_j_neighbour = nblist[nbs_of_j[k]-1];
+
+        //for each of those neighbours of this j neighbour
+        //See if it matches any neighbours of i
+        //These will be pairs we want to keep
+        //(though excluding j itself, which is also a neighbour of neighbour of j)
+        for(int m = 0; m < nbs_of_j_neighbour.size(); ++m){
+
+          for(int n = 0; n < nbs_of_i.size(); ++n){
+
+            if(nbs_of_j_neighbour[m]==nbs_of_i[n]){
+
+              //Should exclude i
+              //If we're looking at nbs_of_j when nbs_of_j=i
+              //And j when nbs_of_j_neighbour = j
+              //as i can be j neighbour and j can be neighbour of j neighbour
+              //Or possibly: neither index at m nor n should equal index at i or j. M and N are same value so only need to test one of those.
+              //Also have to exclude j neighbour being i
+              if(
+                ((nbs_of_j_neighbour[m]!=i+1 && nbs_of_j_neighbour[m]!=nbs_of_i[i_neigbourToUse])&&nbs_of_j[k]!=i+1)
+              ){
+
+                // Rcout<<"Adjusted to start at 1: i:"<<i+1<<" j:"<<nbs_of_i[j]<<" j_nb:"<<nbs_of_j[k]<<" m: "<<nbs_of_j_neighbour[m]<<" n:"<<nbs_of_i[n]<<"\n";
+
+                //Find ACD for that pair and add to vector
+                //indexed at  and either nbs_of_j_neighbour[m] or nbs_of_i[n]
+                acds.push_back(std::abs(attribute[nbs_of_j[k]-1] - attribute[nbs_of_i[n]-1]));
+
+
+              }//end if
+
+            }//end if
+
+          }//end for n
+
+        }//end for m
+
+      }//end for k
+
+      
+      //Add acd from the ij pair too
+      acds.push_back(thisACD);
+
+      //Find average cos it'll vary in length
+      //Total first
+      // for(int i = 0; i < acds.size();++i){}
+      //https://stackoverflow.com/questions/3221812/how-to-sum-up-elements-of-a-c-vector
+      // double sum_of_elems = std::accumulate(acds.begin(), acds.end(), 0);
+
+      //That didn't seem to work
+      double sum_of_elems = 0;
+      //https://stackoverflow.com/questions/7984955/what-is-wrong-with-my-for-loops-i-get-warnings-comparison-between-signed-and-u
+      //There are more complications in that thread
+      for(unsigned n = 0; n < acds.size(); ++n){
+        sum_of_elems += acds[n];
+      }
+
+
+      // Rcout<<sum_of_elems<<"\n";
+
+      indexscore.push_back(
+        sum_of_elems/static_cast<double>(acds.size())
+        );
+
+    
+    
+    
+  }//end for i
+
+
+  //get mean index score
+  double sum_of_elems = 0;
+  for(unsigned n = 0; n < indexscore.size(); ++n){
+    sum_of_elems += indexscore[n];
+  }
+
+  return sum_of_elems / static_cast<double>(indexscore.size());
+
+}
+
+
+
+
+
 
 
 
@@ -942,5 +1128,251 @@ List optimiseWEIGHTEDAverageAbsoluteContiguousDifference(
   return List::create(_["attribute"] = attribute,_["secondpop"] = secondpop);
 
 }
+
+
+
+
+
+
+//Hack until we make these generic
+// [[Rcpp::export]]
+List optimiseWEIGHTED_AACD_pick_only_one_sidepercell(
+    NumericVector attribute, NumericVector secondpop, Rcpp::List nblist,
+     bool maximise, int breakval, double cutoff){
+
+  //bool maximise: if true, maximise otherwise minimise
+
+
+  //set up
+  double newACD = 1;
+
+  int printACD = 0;
+
+  double lastACD = getWeightedNeighbourIndexMeanKeepOnlyMaxACDperSquare(attribute,nblist);
+
+
+  do{
+
+    //copy of attribute to swap zone values around
+    NumericVector replace_attr = clone(attribute);
+    NumericVector replace_secondpop = clone(secondpop);
+
+    //Two indexes for zones to swap values
+    //Doesn't matter if we occasionally replace with self
+    int swap1 = rand() % replace_attr.size();
+    int swap2 = rand() % replace_attr.size();
+
+    //pull one out so we can overwrite
+    double swapval1 = replace_attr[swap1];
+
+    replace_attr[swap1] = replace_attr[swap2];
+    replace_attr[swap2] = swapval1;
+
+    //Repeat for the second population so that DI values remain fixed
+    swapval1 = replace_secondpop[swap1];
+
+    replace_secondpop[swap1] = replace_secondpop[swap2];
+    replace_secondpop[swap2] = swapval1;
+
+
+
+    newACD = getWeightedNeighbourIndexMeanKeepOnlyMaxACDperSquare(replace_attr,nblist);
+
+    if(maximise){
+
+      if(newACD > lastACD){
+
+        lastACD = newACD;
+        attribute = clone(replace_attr);
+        secondpop = clone(replace_secondpop);
+
+        if(++printACD % 200 == 0){
+          Rcout<<breakval<<": "<<newACD<<"\n";
+        }
+
+      }//end if newACD >
+
+    }//end if maximise
+    //if minimising
+    else {
+
+      if(newACD < lastACD){
+
+        lastACD = newACD;
+        attribute = clone(replace_attr);
+        secondpop = clone(replace_secondpop);
+
+        if(++printACD % 100 == 0){
+          Rcout<<breakval<<": "<<newACD<<"\n";
+        }
+
+      }//end if newACD >
+
+    }
+
+
+    if(breakval == 1){
+      Rcout<<"Break point reached.\n";
+    }
+
+
+
+  }//end do
+  while(--breakval > 0);
+  //while(--breakval > 0 && !withinthreshold);
+
+  //Return both optimised attribute
+  //And second pop values tagging along, having been swapped too
+  //To keep DI values identical
+
+  //return attribute;
+  return List::create(_["attribute"] = attribute,_["secondpop"] = secondpop);
+
+}
+
+
+
+
+
+
+//Get basic AACD for any neighbour list
+//So can work with any geography
+// [[Rcpp::export]]
+List getNeighbourIndexAACD(NumericVector attribute, Rcpp::List nblist, double cutoff=0){
+  
+  
+  double totalACD = 0;
+  int bordercount = 0;
+  
+  //Keep ACD values to look for good cutoff vals
+  std::vector<double> allACDs;
+  
+  //cycle through all attributes
+  for(int i = 0; i < attribute.size(); ++i){
+    
+    //Neighbours of i
+    NumericVector nbs_of_i = nblist[i];
+    
+    //Cycle through all of i's neighbours. i and j make dyads/pairs we want to check in turn
+    for(int j = 0; j < nbs_of_i.size(); ++j){
+
+      //find ACD for this ij pair, add to total
+      double ACD = std::abs(attribute[i] - attribute[nbs_of_i[j]-1]);
+      
+      //Only use if above cutoff
+      if(ACD >= cutoff){
+        totalACD += ACD;
+        allACDs.push_back(ACD);
+        bordercount++;//Actually that's kind of redundant now, could use size of allACDs.
+      }
+      
+      
+    }//for j
+    
+  }//for i
+  
+  //Note: double counting borders doesn't matter if you're finding the mean
+  // return totalACD/bordercount;
+  return List::create(_["AACD"] = totalACD/bordercount,_["allACDs"] = allACDs);
+  
+}
+
+
+
+
+
+//Hack until we make these generic
+//Don't need secondpop for this one
+// [[Rcpp::export]]
+NumericVector optimiseGetNeighbourIndexAACD(
+    NumericVector attribute, Rcpp::List nblist,
+    bool maximise, int breakval, double cutoff){
+  
+  //bool maximise: if true, maximise otherwise minimise
+  
+  
+  //set up
+  double newACD = 1;
+  
+  int printACD = 0;
+  
+  List lastACDlist = getNeighbourIndexAACD(attribute,nblist,cutoff);
+  double lastACD = lastACDlist["AACD"];
+  // Rcout<<"lastACD"<<lastACD<<"\n";
+  
+  
+  do{
+    
+    //copy of attribute to swap zone values around
+    NumericVector replace_attr = clone(attribute);
+    
+    //Two indexes for zones to swap values
+    //Doesn't matter if we occasionally replace with self
+    int swap1 = rand() % replace_attr.size();
+    int swap2 = rand() % replace_attr.size();
+    
+    //pull one out so we can overwrite
+    double swapval1 = replace_attr[swap1];
+    
+    replace_attr[swap1] = replace_attr[swap2];
+    replace_attr[swap2] = swapval1;
+    
+    
+    // newACD = getNeighbourIndexAACD(replace_attr,nblist);
+    List newACDlist = getNeighbourIndexAACD(replace_attr,nblist,cutoff);
+    newACD = newACDlist["AACD"];
+    // Rcout<<"newACD"<<newACD<<"\n";
+    
+    
+    if(maximise){
+      
+      if(newACD > lastACD){
+        
+        lastACD = newACD;
+        attribute = clone(replace_attr);
+        
+        if(++printACD % 200 == 0){
+          Rcout<<breakval<<": "<<newACD<<"\n";
+        }
+        
+      }//end if newACD >
+      
+    }//end if maximise
+    //if minimising
+    else {
+      
+      if(newACD < lastACD){
+        
+        lastACD = newACD;
+        attribute = clone(replace_attr);
+        
+        if(++printACD % 200 == 0){
+          Rcout<<breakval<<": "<<newACD<<"\n";
+        }
+        
+      }//end if newACD >
+      
+    }
+    
+    
+    if(breakval == 1){
+      Rcout<<"Break point reached.\n";
+    }
+    
+    
+    
+  }//end do
+  while(--breakval > 0);
+  //while(--breakval > 0 && !withinthreshold);
+  
+  //Return both optimised attribute
+  //And second pop values tagging along, having been swapped too
+  //To keep DI values identical
+  
+  //return attribute;
+  return attribute;
+  
+}
+
 
 

@@ -612,18 +612,20 @@ edgeAACD <- getAverageAbsoluteContiguousDifference(gridedges$peeps1, ncol = ncol
 
 #While here: check using neighbours finds the same result
 ##Get neighbour list
-# gridedges.sp <- as_Spatial(gridedges)
-# gridsmooth.sp <- as_Spatial(gridsmooth)
-# 
-# #Rook contig plz! We only want bordering cells
-# gridedges.neighbours <- poly2nb(gridedges.sp, queen=F)
-# gridsmooth.neighbours <- poly2nb(gridsmooth.sp, queen=F)
+gridedges.sp <- as_Spatial(gridedges)
+gridsmooth.sp <- as_Spatial(gridsmooth)
+
+#Rook contig plz! We only want bordering cells
+gridedges.neighbours <- poly2nb(gridedges.sp, queen=F)
+gridsmooth.neighbours <- poly2nb(gridsmooth.sp, queen=F)
 # 
 # #TICK
-# getNeighbourIndexAACD(attribute = gridsmooth$peeps1,nblist = gridsmooth.neighbours)
-# getNeighbourIndexAACD(attribute = gridedges$peeps1,nblist = gridedges.neighbours)
+x <- getNeighbourIndexAACD(attribute = gridsmooth$peeps1,nblist = gridsmooth.neighbours)
+y <- getNeighbourIndexAACD(attribute = gridedges$peeps1,nblist = gridedges.neighbours)
 
 
+hist( x$allACDs , xlim = c(0,1))
+hist(y$allACDs, xlim = c(0,1))
 
 
 actualAACDs <- data.frame(type = c('smooth','edge'), AACD = c(smoothAACD,edgeAACD))
@@ -1061,6 +1063,9 @@ for(i in 1:length(gridedges$peeps1)){
 #Currently returning a vector with one result per border
 x <- weightedNeighbourIndex(gridedges$peeps1,neighbours)
 Rcpp::sourceCpp("simfunctions.cpp")
+
+#testing new
+x <- selectiveNeighbourIndex(gridedges$peeps1,neighbours)
 
 
 #Tick: the c++ script is returning the right number of borders
@@ -1572,6 +1577,107 @@ ggplot(data.frame(means = nullz), aes(x = means)) +
 
 
 
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#SELECTIVE NEIGHBOUR INDEX----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+#See notes section "new measure?"
+#Use G's little sample cities again - will maybe scale them up at some point
+ncol = 7
+nrow = 8
+
+#Set all this up with the same geography.
+#We have two versions to do.
+gridsmooth <- raster(nrow = nrow, ncol = ncol) %>% rasterToPolygons() %>% as("sf")
+gridsmooth$id = 1:nrow(gridsmooth)
+
+gridedges <- raster(nrow = nrow, ncol = ncol) %>% rasterToPolygons() %>% as("sf")
+gridedges$id = 1:nrow(gridedges)
+
+#Coding values directly from G (left to right)
+#G uses single value - for DI for two pops, the other peeps are 1-x
+gridsmooth$peeps1 <- c(0.05,0.2,0.4,0.6,0.8,0.8,0.8,0.05,0.2,0.4,0.6,0.8,0.8,0.8,0.05,0.2,0.4,0.6,0.6,0.8,0.8,0.05,0.2,0.4,0.6,0.6,0.6,0.6,0.05,0.2,0.4,0.4,0.4,0.4,0.4,0.05,0.2,0.2,0.2,0.2,0.2,0.2,0.05,0.2,0.2,0.2,0.2,0.2,0.2,0.05,0.05,0.05,0.05,0.05,0.05,0.05)
+gridsmooth$peeps2 <- 1 - c(0.05,0.2,0.4,0.6,0.8,0.8,0.8,0.05,0.2,0.4,0.6,0.8,0.8,0.8,0.05,0.2,0.4,0.6,0.6,0.8,0.8,0.05,0.2,0.4,0.6,0.6,0.6,0.6,0.05,0.2,0.4,0.4,0.4,0.4,0.4,0.05,0.2,0.2,0.2,0.2,0.2,0.2,0.05,0.2,0.2,0.2,0.2,0.2,0.2,0.05,0.05,0.05,0.05,0.05,0.05,0.05)
+
+gridedges$peeps1 <- c(0.2,0.4,0.4,0.4,0.4,0.4,0.2,0.2,0.2,0.2,0.05,0.2,0.2,0.4,0.2,0.2,0.05,0.8,0.05,0.6,0.4,0.2,0.05,0.8,0.8,0.8,0.05,0.4,0.2,0.05,0.8,0.8,0.8,0.05,0.4,0.2,0.05,0.05,0.8,0.05,0.05,0.6,0.2,0.6,0.05,0.05,0.05,0.6,0.2,0.2,0.2,0.6,0.6,0.6,0.6,0.2)
+gridedges$peeps2 <- 1- c(0.2,0.4,0.4,0.4,0.4,0.4,0.2,0.2,0.2,0.2,0.05,0.2,0.2,0.4,0.2,0.2,0.05,0.8,0.05,0.6,0.4,0.2,0.05,0.8,0.8,0.8,0.05,0.4,0.2,0.05,0.8,0.8,0.8,0.05,0.4,0.2,0.05,0.05,0.8,0.05,0.05,0.6,0.2,0.6,0.05,0.05,0.05,0.6,0.2,0.2,0.2,0.6,0.6,0.6,0.6,0.2)
+
+
+#Get neighbour list
+gridedges.sp <- as_Spatial(gridedges)
+
+#Rook contig plz! We only want bordering cells
+neighbours <- poly2nb(gridedges.sp, queen=F)
+
+#Tick, max four
+neighbours[[25]]
+
+
+#testing... max of two neighbour pairs, that's right
+Rcpp::sourceCpp("simfunctions.cpp")
+x <- mean(selectiveNeighbourIndex(gridedges$peeps1,neighbours))
+y <- mean(selectiveNeighbourIndex(gridsmooth$peeps1,neighbours))
+
+
+#Compare to null, plot
+nullz <- list()
+for(i in 1:10000){
+  nullz[[length(nullz)+1]] <- mean(selectiveNeighbourIndex(sample(gridedges$peeps1,length(gridedges$peeps1),replace = F),
+                                                          neighbours))
+}
+
+nullz <- unlist(nullz)
+
+ggplot(data.frame(null = nullz), aes(x=nullz)) +
+  geom_density() +
+  geom_vline(xintercept = mean(x), colour='red') +
+  geom_vline(xintercept = mean(y), colour='green')
+
+
+#Well that's no different, huh?
+ggsave('outputs/selectiveneighbourindexnull.png',width=7,height=7)
+
+
+#That pattern looks... blocky! We shall see. Now for optimising a random space
+ncol = 20
+nrow = 20
+
+#Set all this up with the same geography.
+grid <- raster(nrow = nrow, ncol = ncol) %>% rasterToPolygons() %>% as("sf")
+
+
+grid$peeps1 <- runif(nrow(grid))
+grid$peeps2 <- 1-grid$peeps1
+hist(grid$peeps1)#Evenly spread from 0 to 1
+
+#NOISE
+plot(grid[,'peeps1'])
+
+#Neighbour list from that plz
+grid.sp <- as_Spatial(grid)
+
+#Rook contig plz! We only want bordering cells
+neighbours <- poly2nb(grid.sp, queen=F)
+
+
+
+
+
+
+minz <- optimiseSelectiveNeighbourIndex(
+  attribute = grid$peeps1, nblist = neighbours,
+  maximise = F, breakval = 50000)
+
+grid$minz <- minz
+plot(grid[,'minz'])
+
+grid$maxz <- optimiseSelectiveNeighbourIndex(
+  attribute = grid$peeps1, nblist = neighbours,
+  maximise = T, breakval = 50000)
+plot(grid[,'maxz'])
 
 
 

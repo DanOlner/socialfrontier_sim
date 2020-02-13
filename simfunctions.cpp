@@ -318,9 +318,10 @@ double OLD___getAverageAbsoluteContiguousDifference(NumericVector attribute, int
 
 
 //Re-writing to allow for an ACD high-pass filter
-//(err, only finding values for ACDs above a given cutoff)
+//(err, as in only finding values for ACDs above a given cutoff)
+//GRID ONLY but can work with grid torus
 // [[Rcpp::export]]
-double getAverageAbsoluteContiguousDifference(NumericVector attribute, int ncol, int nrow, double cutoff, bool torus = false){
+double getAverageAbsoluteContiguousDifference_GRIDONLY(NumericVector attribute, int ncol, int nrow, double cutoff, bool torus = false){
   
   //For calculating average...
   //Though actually, should be number of neighbours/2 (so not getting A>B and B>A)
@@ -501,7 +502,7 @@ List optimiseAverageAbsoluteContiguousDifference(
   
   int printACD = 0;
   
-  double lastACD = getAverageAbsoluteContiguousDifference(attribute,ncol,nrow,cutoff);
+  double lastACD = getAverageAbsoluteContiguousDifference_GRIDONLY(attribute,ncol,nrow,cutoff);
   
   
   do{
@@ -529,7 +530,7 @@ List optimiseAverageAbsoluteContiguousDifference(
     
     
     
-    newACD = getAverageAbsoluteContiguousDifference(replace_attr,ncol,nrow,cutoff);
+    newACD = getAverageAbsoluteContiguousDifference_GRIDONLY(replace_attr,ncol,nrow,cutoff);
     
     if(maximise){
       
@@ -603,7 +604,7 @@ NumericVector getRepeatedAACDfromPermutedCells(NumericVector attribute, int ncol
     
     shuffled = randomShuffle(attribute);
     
-    results[i] = getAverageAbsoluteContiguousDifference(shuffled,ncol,nrow,cutoff,torus);
+    results[i] = getAverageAbsoluteContiguousDifference_GRIDONLY(shuffled,ncol,nrow,cutoff,torus);
     
   }
   
@@ -1390,15 +1391,19 @@ NumericVector optimiseGetNeighbourIndexAACD(
 //Then swap for larger of mn kl
 //otherwise keep as is
 
-
 //Index itself per border
+//useNeighMax: if true, replace ij with max of mn and kl (if condition met), otherwise use min of mn and kl.
 // [[Rcpp::export]]
-std::vector<double> selectiveNeighbourIndex(NumericVector attribute, Rcpp::List nblist){
+std::vector<double> selectiveNeighbourIndex(NumericVector attribute, Rcpp::List nblist, 
+                                            bool useNeighMax = true,
+                                            double threshold = 0){
+  
+  // Rcout<<"Check compiles\n";
   
   //Vector for storing the actual weighted score
   //Want to look at that
   //https://stackoverflow.com/questions/30129968/how-to-initialize-numericvector-to-a-specific-size-after-it-has-been-declared
-  // NumericVector indexscore = NumericVector(attribute.size());
+  //NumericVector indexscore = NumericVector(attribute.size());
   std::vector<double> indexscore;
   
   
@@ -1411,94 +1416,129 @@ std::vector<double> selectiveNeighbourIndex(NumericVector attribute, Rcpp::List 
     //Cycle through all of i's neighbours. i and j make dyads/pairs we want to check in turn
     for(int j = 0; j < nbs_of_i.size(); ++j){
       
-      // Rcout<<nbs_of_i[j]<<"\n";
+      //Avoid double-running e.g. i, j and j, i
+      if(i < nbs_of_i[j]-1){
       
-      //Get neighbours of j (which are neighbours of this particular neighbour of i)
-      //SUBTRACT ONE! 
-      //The neighbours lists are indexed 1 to n in R.
-      //The correct index is going to be nbs_of_i[j]-1 innit?
-      NumericVector nbs_of_j = nblist[nbs_of_i[j]-1];
-      
-      
-      
-      
-      //Add ACD of the found pairs to this
-      std::vector<double> acds; 
-      
-      //cycle through neighbours of neighbours of cell j
-      for(int k = 0; k < nbs_of_j.size(); ++k){
+        // Rcout<<nbs_of_i[j]<<"\n";
         
-        NumericVector nbs_of_j_neighbour = nblist[nbs_of_j[k]-1];
+        //Get neighbours of j (which are neighbours of this particular neighbour of i)
+        //SUBTRACT ONE! 
+        //The neighbours lists are indexed 1 to n in R.
+        //The correct index is going to be nbs_of_i[j]-1 innit?
+        NumericVector nbs_of_j = nblist[nbs_of_i[j]-1];
         
-        //for each of those neighbours of this j neighbour
-        //See if it matches any neighbours of i
-        //These will be pairs we want to keep
-        //(though excluding j itself, which is also a neighbour of neighbour of j)
-        for(int m = 0; m < nbs_of_j_neighbour.size(); ++m){
+        
+        
+        
+        //Add ACD of the found pairs to this
+        std::vector<double> acds; 
+        
+        //cycle through neighbours of neighbours of cell j
+        for(int k = 0; k < nbs_of_j.size(); ++k){
           
-          for(int n = 0; n < nbs_of_i.size(); ++n){
+          NumericVector nbs_of_j_neighbour = nblist[nbs_of_j[k]-1];
+          
+          //for each of those neighbours of this j neighbour
+          //See if it matches any neighbours of i
+          //These will be pairs we want to keep
+          //(though excluding j itself, which is also a neighbour of neighbour of j)
+          for(int m = 0; m < nbs_of_j_neighbour.size(); ++m){
             
-            if(nbs_of_j_neighbour[m]==nbs_of_i[n]){
+            for(int n = 0; n < nbs_of_i.size(); ++n){
               
-              //Should exclude i 
-              //If we're looking at nbs_of_j when nbs_of_j=i
-              //And j when nbs_of_j_neighbour = j
-              //as i can be j neighbour and j can be neighbour of j neighbour
-              //Or possibly: neither index at m nor n should equal index at i or j. M and N are same value so only need to test one of those.
-              //Also have to exclude j neighbour being i
-              if(
-                ((nbs_of_j_neighbour[m]!=i+1 && nbs_of_j_neighbour[m]!=nbs_of_i[j])&&nbs_of_j[k]!=i+1)
-              ){
+              if(nbs_of_j_neighbour[m]==nbs_of_i[n]){
                 
-                // Rcout<<"Adjusted to start at 1: i:"<<i+1<<" j:"<<nbs_of_i[j]<<" j_nb:"<<nbs_of_j[k]<<" m: "<<nbs_of_j_neighbour[m]<<" n:"<<nbs_of_i[n]<<"\n";
-                
-                //Find ACD for that pair and add to vector
-                //indexed at  and either nbs_of_j_neighbour[m] or nbs_of_i[n]
-                acds.push_back(std::abs(attribute[nbs_of_j[k]-1] - attribute[nbs_of_i[n]-1]));
-                
+                //Should exclude i 
+                //If we're looking at nbs_of_j when nbs_of_j=i
+                //And j when nbs_of_j_neighbour = j
+                //as i can be j neighbour and j can be neighbour of j neighbour
+                //Or possibly: neither index at m nor n should equal index at i or j. M and N are same value so only need to test one of those.
+                //Also have to exclude j neighbour being i
+                if(
+                  ((nbs_of_j_neighbour[m]!=i+1 && nbs_of_j_neighbour[m]!=nbs_of_i[j])&&nbs_of_j[k]!=i+1)
+                ){
+                  
+                  // Rcout<<"Adjusted to start at 1: i:"<<i+1<<" j:"<<nbs_of_i[j]<<" j_nb:"<<nbs_of_j[k]<<" m: "<<nbs_of_j_neighbour[m]<<" n:"<<nbs_of_i[n]<<"\n";
+                  
+                  //Find ACD for that pair and add to vector
+                  //indexed at  and either nbs_of_j_neighbour[m] or nbs_of_i[n]
+                  
+                  // Rcout<<"mn kl neighbour vals: "<<attribute[nbs_of_j[k]-1]<<", "<<attribute[nbs_of_i[n]-1]<<
+                  //   ", abs diff:"<< std::abs(attribute[nbs_of_j[k]-1] - attribute[nbs_of_i[n]-1])<<
+                  //     ", indiceS: "<<nbs_of_j[k]-1<<","<<nbs_of_i[n]-1<<"\n";
+                  // 
+                  acds.push_back(std::abs(attribute[nbs_of_j[k]-1] - attribute[nbs_of_i[n]-1]));
+                  
+                  
+                }//end if
                 
               }//end if
               
-            }//end if
+            }//end for n
             
-          }//end for n
+          }//end for m
           
-        }//end for m
+        }//end for k
         
-      }//end for k
-      
-      //checking it's a max of 2. Tick.
-      // Rcout<<"ij neighbour pairs num: "<<acds.size()<<"\n";
-      
-      double ij_ACD = std::abs(attribute[i] - attribute[nbs_of_i[j]-1]);
-      
-      
-      //If both mn kl ACD (stored in acds) are smaller than ij ACD
-      //Then swap for larger of mn kl
-      //otherwise keep as is
-      //acds length will be one or two.
-      
-      //"Keep as is, same as ij" is default
-      double final_ACD = ij_ACD;
-      
-      //find max out of the two neighbours (sometimes one, so that'll be max)
-      //https://stackoverflow.com/a/36315647/5023561
-      double max_neigh_ACD = *max_element(acds.begin(), acds.end());
-      
-      // Rcout<<"max element: "<<max_neigh_ACD<<"\n";
-      
-      
-      //If both are smaller...
-      if(max_neigh_ACD < ij_ACD) final_ACD = max_neigh_ACD;
-      
-      
-      // Rcout<<sum_of_elems<<"\n";
-      
-      indexscore.push_back(final_ACD/static_cast<double>(acds.size()));
+        //checking it's a max of 2. Tick.
+        // Rcout<<"ij neighbour pairs num: "<<acds.size()<<"\n";
+        
+        double ij_ACD = std::abs(attribute[i] - attribute[nbs_of_i[j]-1]);
+        
+        
+        //Only use if acd is above threshold... 
+        //Issue here is how to indicate if it isn't
+        //Might set val to -1, can filter after if needs be.
+        //(Cos we want each value for each cell so it can match against the original data)
+        //Will need to pick up on that in optimiser below.
+        if(ij_ACD >= threshold){
+        
+        
+        //If both mn kl ACD (stored in acds) are smaller than ij ACD
+        //Then swap for larger of mn kl
+        //otherwise keep as is
+        //acds length will be one or two.
+        
+        //"Keep as is, same as ij" is default
+        double final_ACD = ij_ACD;
+        
+        //If replacing with max of neighbour pairs...
+        if(useNeighMax){
+        
+          //find max out of the two neighbours (sometimes one, so that'll be max)
+          //https://stackoverflow.com/a/36315647/5023561
+          double max_neigh_ACD = *max_element(acds.begin(), acds.end());
+          
+          // Rcout<<"max element: "<<max_neigh_ACD<<"\n";
+          
+          //If both are smaller...
+          if(max_neigh_ACD < ij_ACD) final_ACD = max_neigh_ACD;
+        
+        } else {//otherwise use min of neighbour pairs
+          
+          double min_neigh_ACD = *min_element(acds.begin(), acds.end());
+          
+          //If both are smaller...
+          if(min_neigh_ACD < ij_ACD) final_ACD = min_neigh_ACD;
+          
+        }
+        
+        
+        // Rcout<<sum_of_elems<<"\n";
+        //Well we didn't want this, did we? This is finding mean...
+        // indexscore.push_back(final_ACD/static_cast<double>(acds.size()));
+        indexscore.push_back(final_ACD);
+        
+        } else {//Else use -1 to indicate this was below threshold
+          indexscore.push_back(-1);
+        }//end if threshold
+        
+        }//end if i<j to avoid double count
+        
       
     }//end for j
   }//end for i
-  
+      
   return indexscore;
   
 }
@@ -1511,7 +1551,7 @@ std::vector<double> selectiveNeighbourIndex(NumericVector attribute, Rcpp::List 
 // [[Rcpp::export]]
 NumericVector optimiseSelectiveNeighbourIndex(
     NumericVector attribute, Rcpp::List nblist,
-    bool maximise, int breakval){
+    bool maximise, int breakval, bool useNeighMax = true){
   
   //bool maximise: if true, maximise otherwise minimise
   
@@ -1529,7 +1569,7 @@ NumericVector optimiseSelectiveNeighbourIndex(
   
   //Get results for each border, find mean
   //Find mean here rather than duplicating above code to find mean in the function
-  std::vector<double> results = selectiveNeighbourIndex(attribute,nblist);
+  std::vector<double> results = selectiveNeighbourIndex(attribute,nblist,useNeighMax);
   //0.0 cos double! 0 is int and breaks it
   double lastACD = std::accumulate(results.begin(), results.end(), 0.0);
   lastACD /= static_cast<double>(results.size());
@@ -1554,7 +1594,7 @@ NumericVector optimiseSelectiveNeighbourIndex(
     replace_attr[swap1] = replace_attr[swap2];
     replace_attr[swap2] = swapval1;
     
-    std::vector<double> results = selectiveNeighbourIndex(replace_attr,nblist);
+    std::vector<double> results = selectiveNeighbourIndex(replace_attr,nblist,useNeighMax);
     newACD = std::accumulate(results.begin(), results.end(), 0.0);
     newACD /= static_cast<double>(results.size());
     // Rcout<<"newACD: "<<newACD<<"\n";

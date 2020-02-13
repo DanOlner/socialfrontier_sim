@@ -10,7 +10,6 @@ source('functions_r.R')
 #DI----
 #~~~~~~
 
-
 grid <- raster(nrow = 30, ncol = 30) %>% rasterToPolygons() %>% as("sf")
 
 #Two random data columns

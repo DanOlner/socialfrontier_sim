@@ -3,6 +3,11 @@ library(tidyverse)
 library(spdep)
 library(raster)
 library(tmap)
+library(stringr)
+library(cowplot)
+theme_set(theme_grey())
+source('FUNCTIONS_optimiseAACD.R')
+
 # library(RcppArmadillo)
 #library(Rcpp)
 #source('SegregationIndicesDuncanLee.R')
@@ -1584,8 +1589,6 @@ ggplot(data.frame(means = nullz), aes(x = means)) +
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
-#See notes section "new measure?"
-#Use G's little sample cities again - will maybe scale them up at some point
 ncol = 7
 nrow = 8
 
@@ -1620,13 +1623,15 @@ neighbours[[25]]
 Rcpp::sourceCpp("simfunctions.cpp")
 x <- mean(selectiveNeighbourIndex(gridedges$peeps1,neighbours))
 y <- mean(selectiveNeighbourIndex(gridsmooth$peeps1,neighbours))
+x <- mean(selectiveNeighbourIndex(gridedges$peeps1,neighbours, useNeighMax = F))
+y <- mean(selectiveNeighbourIndex(gridsmooth$peeps1,neighbours, useNeighMax = F))
 
 
 #Compare to null, plot
 nullz <- list()
 for(i in 1:10000){
   nullz[[length(nullz)+1]] <- mean(selectiveNeighbourIndex(sample(gridedges$peeps1,length(gridedges$peeps1),replace = F),
-                                                          neighbours))
+                                                          neighbours,useNeighMax = F))
 }
 
 nullz <- unlist(nullz)
@@ -1665,19 +1670,1837 @@ neighbours <- poly2nb(grid.sp, queen=F)
 
 
 
-
-
 minz <- optimiseSelectiveNeighbourIndex(
   attribute = grid$peeps1, nblist = neighbours,
-  maximise = F, breakval = 50000)
+  maximise = F, breakval = 50000,useNeighMax = T)
 
 grid$minz <- minz
 plot(grid[,'minz'])
 
 grid$maxz <- optimiseSelectiveNeighbourIndex(
   attribute = grid$peeps1, nblist = neighbours,
-  maximise = T, breakval = 50000)
+  maximise = T, breakval = 50000,useNeighMax = T)
 plot(grid[,'maxz'])
+
+
+
+
+#TEST SAME WITH THRESHOLD (default is useNeighMax = T)
+Rcpp::sourceCpp("simfunctions.cpp")
+
+#Check range to see what good threshold might be 
+range(selectiveNeighbourIndex(gridedges$peeps1,neighbours, threshold = 0))
+range(selectiveNeighbourIndex(gridsmooth$peeps1,neighbours, threshold = 0))
+selectiveNeighbourIndex(gridedges$peeps1,neighbours, threshold = 0)
+selectiveNeighbourIndex(gridsmooth$peeps1,neighbours, threshold = 0)
+
+x <- mean(selectiveNeighbourIndex(gridedges$peeps1,neighbours, threshold = 0))
+y <- mean(selectiveNeighbourIndex(gridsmooth$peeps1,neighbours, threshold = 0))
+
+#Compare to null, plot
+nullz <- list()
+for(i in 1:10000){
+  nullz[[length(nullz)+1]] <- mean(selectiveNeighbourIndex(sample(gridedges$peeps1,length(gridedges$peeps1),replace = F),
+                                                           neighbours,useNeighMax = F))
+}
+
+nullz <- unlist(nullz)
+
+ggplot(data.frame(null = nullz), aes(x=nullz)) +
+  geom_density() +
+  geom_vline(xintercept = mean(x), colour='red') +
+  geom_vline(xintercept = mean(y), colour='green')
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#BRINGING WEIGHTED NEIGHBOUR INDEX BACK INTO R----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#From C++. For ease of working with / adding new shizzle.
+#I already have code for it, used for debugging. But it doesn't yet (I don't think)
+#Find any actual values. Let's looksee.
+
+#See notes section "new measure?"
+#Use G's little sample cities again - will maybe scale them up at some point
+# ncol = 7
+# nrow = 8
+# 
+# #Set all this up with the same geography.
+# #We have two versions to do.
+# gridsmooth <- raster(nrow = nrow, ncol = ncol) %>% rasterToPolygons() %>% as("sf")
+# gridsmooth$id = 1:nrow(gridsmooth)
+# 
+# gridedges <- raster(nrow = nrow, ncol = ncol) %>% rasterToPolygons() %>% as("sf")
+# gridedges$id = 1:nrow(gridedges)
+
+
+#RASTERTOPOLYGONS seems to return a rectangular grid. 
+#We want exactly square to keep distance calcs correct.
+#Use one I made earlier...
+
+
+gridsmooth <- st_read('saves/shapefiles/7by8gridSquare.shp')
+gridedges <- st_read('saves/shapefiles/7by8gridSquare.shp')
+
+#For other work
+grid.rci <- st_read('saves/shapefiles/7by8gridSquare.shp')
+
+#Of course, it would be oriented completely differently. Can I use ID to fix?
+plot(gridsmooth)
+
+#Reorient via ID so order is top-left across
+neworder <- list()
+for(i in 1:7) neworder[[length(neworder)+1]] <- seq(from=i, to=56, by=7)
+
+gridsmooth$id <- unlist(neworder)
+gridsmooth <- gridsmooth %>% arrange(id)
+
+gridedges$id <- unlist(neworder)
+gridedges <- gridedges %>% arrange(id)
+
+grid.rci$id <- unlist(neworder)
+grid.rci <- grid.rci %>% arrange(id)
+
+#Keep only 7*7 grid
+grid.rci <- grid.rci[1:49,]
+st_write(grid.rci,'grid.rci.shp',delete_layer = T)
+
+
+  
+#Coding values directly from G (left to right)
+#G uses single value - for DI for two pops, the other peeps are 1-x
+gridsmooth$peeps1 <- c(0.05,0.2,0.4,0.6,0.8,0.8,0.8,0.05,0.2,0.4,0.6,0.8,0.8,0.8,0.05,0.2,0.4,0.6,0.6,0.8,0.8,0.05,0.2,0.4,0.6,0.6,0.6,0.6,0.05,0.2,0.4,0.4,0.4,0.4,0.4,0.05,0.2,0.2,0.2,0.2,0.2,0.2,0.05,0.2,0.2,0.2,0.2,0.2,0.2,0.05,0.05,0.05,0.05,0.05,0.05,0.05)
+gridsmooth$peeps2 <- 1 - gridsmooth$peeps1
+
+gridedges$peeps1 <- c(0.2,0.4,0.4,0.4,0.4,0.4,0.2,0.2,0.2,0.2,0.05,0.2,0.2,0.4,0.2,0.2,0.05,0.8,0.05,0.6,0.4,0.2,0.05,0.8,0.8,0.8,0.05,0.4,0.2,0.05,0.8,0.8,0.8,0.05,0.4,0.2,0.05,0.05,0.8,0.05,0.05,0.6,0.2,0.6,0.05,0.05,0.05,0.6,0.2,0.2,0.2,0.6,0.6,0.6,0.6,0.2)
+gridedges$peeps2 <- 1- gridedges$peeps1
+
+plot(gridsmooth)
+plot(gridedges)
+
+#Check order is: start top-left, go left to right. Tick.
+# gridsmooth$peeps1[8] <- 100
+# plot(gridsmooth)
+
+#Get neighbour list
+gridedges.sp <- as_Spatial(gridedges)
+
+#Rook contig plz! We only want bordering cells
+neighbours <- poly2nb(gridedges.sp, queen=F)
+
+#Tick, max four
+neighbours[[25]]
+
+displayAllNeighbours(gridedges$peeps1,neighbours)
+
+
+
+#SHIFTED NEMA WEIGHTED BORDER CALC TO FUNCTION
+weightedAACD(gridedges$peeps1,neighbours)
+
+
+#Null dist
+y = list()
+
+for(i in 1:1000){
+  
+  cat(i,'\n')
+  
+  y[[length(y)+1]] <- weightedAACD(sample(gridedges$peeps1,replace = F),neighbours)
+  # y <- weightedAACD(sample(gridedges$peeps1,replace = F), neighbours)
+  
+}
+
+plot(density(unlist(y)))
+
+
+#Routine for optimising. Permute values, seek max/min
+x = proc.time()
+
+var <- gridedges$peeps1
+
+for(i in 1:10000){
+  
+  y <- weightedAACD(var, neighbours)
+  
+  newvar = var
+  
+  #Swap single cell
+  # swap1 = var[ as.integer(runif(1)*length(var))  ]
+  swap1 = sample(1:length(newvar),1)
+  swap2 = sample(1:length(newvar),1)
+  # swap1 = newvar[ sample(1:length(newvar),1)  ]
+  # swap2 = newvar[ sample(1:length(newvar),1)  ]
+  
+  #Swap em
+  temp = newvar[swap1]
+  newvar[swap1] = newvar[swap2]
+  newvar[swap2] = temp
+  
+  z = weightedAACD(newvar, neighbours)
+  
+  #Minimise
+  if(z < y) var = newvar
+  #Maximise
+  # if(z > y) var = newvar
+  
+}
+
+proc.time()-x
+
+gridedges$opt_peeps <- var
+plot(gridedges)
+
+#Speed comparison to C++ plz?
+x = proc.time()
+
+minz <- optimiseSelectiveNeighbourIndex(
+  attribute = gridedges$peeps1, nblist = neighbours,
+  maximise = F, breakval = 10000,useNeighMax = T)
+
+proc.time()-x
+
+#C++ 1.74 seconds
+#R 84.25 second
+#C++ is 50 times faster
+#(For 8*7 grid / 10000 iterations)
+
+#Is C++ and R giving same values? Tick. That seems to be working then...
+#[[1]] is index, [[2]] contains actual border values in list
+x <- weightedAACD(gridedges$peeps1,neighbours)
+x[[1]]
+mean(selectiveNeighbourIndex(gridedges$peeps1,neighbours))
+x <- weightedAACD(gridedges$opt_peeps,neighbours)
+x[[1]]
+mean(selectiveNeighbourIndex(gridedges$opt_peeps,neighbours))
+
+
+#Same actual order of values returned? TICK.
+x <- weightedAACD(gridedges$peeps1,neighbours)[[2]]
+y <- selectiveNeighbourIndex(gridedges$peeps1,neighbours)
+
+#So actually, what that means:
+#I can get vector from C++ and then get another vector for Moran's I
+#And combine them.
+
+#~~~~~~~~~~~~~~~~
+#LOCAL MORANS----
+#~~~~~~~~~~~~~~~~
+
+#Moran's from spdep
+x = nb2listw(neighbours)
+moran.test(gridedges$peeps1,x)
+
+
+#So. The plan:
+#Find Moran's I on each side of pairs. Add them. Keep as edge index.
+#Maintain order run as before
+
+#Ah, actually: to get the full 9 zone neighbour list, easiest to use
+#Queen contig
+neighbours.queen <- poly2nb(gridedges.sp, queen=T)
+gridsmooth.sp <- as_Spatial(gridsmooth)
+
+
+debugonce(localMoransI_onEachSideOfBorder)
+
+localMoransI_onEachSideOfBorder(gridedges$peeps1,neighbours,neighbours.queen,gridedges.sp)
+localMoransI_onEachSideOfBorder(gridsmooth$peeps1,neighbours,neighbours.queen,gridsmooth.sp)
+
+
+#Test optimising just on Moran's. What does that look like?
+#(Very small grid, might be worth trying with larger...)
+x = proc.time()
+
+var <- gridedges$peeps1
+origspatial <- gridedges.sp#Use this to get local neighbour values for Moran's
+#Use copy so we can update this too. Might be an idea just to use that to save confusion, really...
+
+#SLOOOW!
+for(i in 1:100){
+  
+  cat(i,"\n")
+  
+  y <- localMoransI_onEachSideOfBorder(var, neighbours, neighbours.queen, origspatial)
+  
+  newvar = var
+  newspatial = origspatial
+  
+  #Swap single cell
+  swap1 = sample(1:length(newvar),1)
+  swap2 = sample(1:length(newvar),1)
+  
+  #Swap em (both in var and spatial version... again, should make one copy at some point to keep simpler)
+  temp = newvar[swap1]
+  newvar[swap1] = newvar[swap2]
+  newspatial$peeps1[swap1] = newvar[swap2]
+  
+  newvar[swap2] = temp
+  newspatial$peeps1[swap2] = temp
+  
+  z <- localMoransI_onEachSideOfBorder(newvar, neighbours, neighbours.queen, newspatial)
+  
+  #Minimise
+  if(z[[1]] > y[[1]]) {
+    
+    var = newvar
+    origspatial = newspatial
+    
+  }
+  #Maximise
+  # if(z > y) var = newvar
+  
+}
+
+proc.time()-x
+
+gridedges$opt_peeps <- var
+plot(gridedges)
+
+
+# newvar = newvar[sample(1:length(newvar), replace = F)]
+# #Still same values
+# newvar[order(newvar)]==gridedges$peeps1[order(gridedges$peeps1)]
+# newvar[order(newvar)]==gridsmooth$peeps1[order(gridsmooth$peeps1)]
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#TESTING BASIC DECENTRALISATION INDEX----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#Looking at Massey/denton currently. Let's find a geography to play with. Err...
+shp <- st_read('C:/Users/Dan Olner/Dropbox/SheffieldMethodsInstitute/CountryOfBirthOpenDataSets/data/gb_shapefile/gb_altered_wards_n_postcodesectors_w_lookup.shp')
+
+lon.data <- read_csv('C:/Users/Dan Olner/Dropbox/SheffieldMethodsInstitute/CountryOfBirthOpenDataSets/data/countryofbirth/countryOfBirth_GreatBritain_5_Census.csv', guess_max = 15000)
+
+#Nabbed from repo
+#library(conflicted)
+#conflict_prefer("select", "dplyr") 
+
+props <- lon.data %>%
+  mutate(rowsums = rowSums(dplyr::select(.,England:`Rest of world`))) %>% 
+  mutate_at(vars(England:`Rest of world`), funs(  ((.)/rowsums)*100  )) %>% 
+  dplyr::select(-rowsums)
+
+#Add a column for total of non-UK-born
+props <- props %>%
+  mutate(nonUK = `Irish Republic`+India+Pakistan+Europe+`Rest of world`,
+         UK = England+Scotland+Wales+`Rest of UK`,
+        Total = `Irish Republic`+India+Pakistan+Europe+`Rest of world`+England+Scotland+Wales+`Rest of UK`
+         )
+
+#Merge spatial zones with CoB data
+join <- left_join(shp,props,by='zone')
+
+#Subset to London TTWA
+london <- join %>% filter(ttwa == 'London')
+plot(st_geometry(london))
+
+
+#..
+
+#So in theory, didn't need to do proportions anyway, did we? In fact, that was a bad idea...
+#Try again!
+counts <- lon.data %>%
+  mutate(
+    count_UK = rowSums(dplyr::select(.,England:Wales,`Rest of UK`)),
+    count_nonUK = rowSums(dplyr::select(.,`Irish Republic`,India:`Rest of world`))
+         )
+
+join <- left_join(shp,counts,by='zone')
+
+#Subset to London TTWA
+london <- join %>% filter(ttwa == 'London')
+
+london11 <- london %>% filter(censusYear==2011) %>% dplyr::select(zone,count_UK,count_nonUK)
+
+
+#It perhaps has to actually be proportions across zones. Let's see what happens.
+#First-up, need to work out order of zones by distance from centre.
+#Pick a centre zone... 
+#01ALFJ will do.
+#is this zero cos they're in contact? Better to use centroids?
+# st_distance(london11[1,],london11[2,])
+# 
+# #Yup.
+# london11.centroids <- st_centroid(london11)
+# st_distance(london11.centroids[1,],london11.centroids[2,])
+
+#So.
+london11$distfromcentre_01ALFJ <- st_distance(london11.centroids[london11.centroids$zone=='01ALFJ',],london11.centroids,by_element = T)
+
+#Sort by distance from centre
+london11 <- london11 %>% arrange(distfromcentre_01ALFJ)
+#Get rid of geography (or it finds value for the geometry...)
+london11.nogeog <- london11 %>% st_set_geometry(NULL)
+
+#RCI
+tot = list()
+
+#Sum cum proportions multiplied for first lot
+for(i in 2:nrow(london)){
+  tot[[length(tot)+1]] <- cumsum(london11.nogeog[1:(i-1),'count_UK'])
+    
+    
+    london11.nogeog[(i-1),'count_UK'] * london11.nogeog[i,'count_nonUK']
+}
+
+
+
+
+for(i in 2:nrow(london)){
+  tot[[length(tot)+1]] <- london11.nogeog[(i-1),'count_UK'] * london11.nogeog[i,'count_nonUK']
+}
+
+tot2 = list()
+
+#Sum cum proportions multiplied for first lot
+for(i in 2:nrow(london)){
+  tot2[[length(tot)+1]] <- london11.nogeog[(i),'count_UK'] * london11.nogeog[i-1,'count_nonUK']
+}
+
+#Sum and substract the two...
+
+
+
+#DOING IT WITH LONDON, MAYBE A BAD IDEA. THAT'S A LOTTA ZONES.
+counts <- lon.data %>%
+  mutate(
+    count_UK = rowSums(dplyr::select(.,England:Wales,`Rest of UK`)),
+    count_nonUK = rowSums(dplyr::select(.,`Irish Republic`,India:`Rest of world`))
+  )
+
+join <- left_join(shp,counts,by='zone')
+
+#Subset to London TTWA
+shef <- join %>% filter(grepl(pattern = 'Sheffield', .$ttwa))
+shef11 <- shef %>% filter(censusYear==2011) %>% dplyr::select(zone,count_UK,count_nonUK)
+
+
+#05CGFF is centralish
+shef11.centroids <- st_centroid(shef11)
+shef11$distfromcentre_01ALFJ <- st_distance(shef11.centroids[shef11.centroids$zone=='05CGFF',],shef11.centroids,by_element = T)
+
+#Sort by distance from centre
+shef11 <- shef11 %>% arrange(distfromcentre_01ALFJ)
+#Get rid of geography (or it finds value for the geometry...)
+shef11.nogeog <- shef11 %>% st_set_geometry(NULL)
+
+#cumsum(shef11.nogeog$count_UK)
+
+#RCI
+tot = list()
+
+#Sum cum proportions multiplied for first lot
+for(i in 2:nrow(shef11.nogeog)){
+  
+  x = cumsum(shef11.nogeog[1:(i-1),'count_UK'])
+  x = x[length(x)]#get final cumulative sum
+  
+  y = cumsum(shef11.nogeog[2:(i),'count_nonUK'])
+  y = y[length(y)]#get final cumulative sum
+  
+    tot[[length(tot)+1]] <- x*y
+  
+}
+
+#Sum all those results
+tot = sum(unlist(tot))
+
+tot2 = list()
+
+#Sum cum proportions multiplied for first lot
+for(i in 2:nrow(shef11.nogeog)){
+  
+  x = cumsum(shef11.nogeog[2:(i),'count_UK'])
+  x = x[length(x)]#get final cumulative sum
+  
+  y = cumsum(shef11.nogeog[1:(i-1),'count_nonUK'])
+  y = y[length(y)]#get final cumulative sum
+  
+  tot2[[length(tot2)+1]] <- x*y
+  
+}
+
+#Sum all those results
+tot2 = sum(unlist(tot2))
+
+
+
+#OK, THINK EACH NEEDS TO BE PROPORTION FOR EACH COLUMN
+shef11.nogeog <- shef11.nogeog %>% 
+  mutate_at(vars(count_UK:count_nonUK), funs(prop = ./sum(.)))
+
+#sum(shef11.nogeog$count_nonUK_prop)#tick
+
+
+tot = list()
+
+#Sum cum proportions multiplied for first lot
+for(i in 2:nrow(shef11.nogeog)){
+  
+  x = cumsum(shef11.nogeog[1:(i-1),'count_UK_prop'])
+  x = x[length(x)]#get final cumulative sum
+  
+  y = cumsum(shef11.nogeog[1:(i),'count_nonUK_prop'])
+  y = y[length(y)]#get final cumulative sum
+  
+    tot[[length(tot)+1]] <- x*y
+  
+}
+
+#Sum all those results
+tot = sum(unlist(tot))
+
+tot2 = list()
+
+#Sum cum proportions multiplied for first lot
+for(i in 2:nrow(shef11.nogeog)){
+  
+  x = cumsum(shef11.nogeog[1:(i),'count_UK_prop'])
+  x = x[length(x)]#get final cumulative sum
+  
+  y = cumsum(shef11.nogeog[1:(i-1),'count_nonUK_prop'])
+  y = y[length(y)]#get final cumulative sum
+  
+  tot2[[length(tot2)+1]] <- x*y
+  
+}
+
+#Sum all those results
+tot2 = sum(unlist(tot2))
+
+tot-tot2
+
+#Negative: y members are closer to centre, relatively... Tick.
+plot(shef11[,2:3])
+
+
+
+#function version
+#ASSUMES ALREADY ORDERED BY DISTANCE
+relativeCentralisationIndex(shef11.nogeog,'count_UK_prop','count_nonUK_prop')
+relativeCentralisationIndex(shef11.nogeog,'count_nonUK_prop','count_UK_prop')
+
+
+#Check against Meng Le's version
+rci(x = shef11.nogeog$count_UK,y = shef11.nogeog$count_nonUK,sort.var = shef11.nogeog$distfromcentre_01ALFJ)
+rci(x = shef11.nogeog$count_nonUK,y = shef11.nogeog$count_UK,sort.var = shef11.nogeog$distfromcentre_01ALFJ)
+
+#check speed diff
+x <- proc.time()
+replicate(1000,relativeCentralisationIndex(shef11.nogeog,'count_UK_prop','count_nonUK_prop'))
+proc.time()-x
+
+#25 times faster!
+x <- proc.time()
+replicate(1000,rci(x = shef11.nogeog$count_UK,y = shef11.nogeog$count_nonUK,sort.var = shef11.nogeog$distfromcentre_01ALFJ))
+proc.time()-x
+
+#"Positive values indicate that X members are located closer to the city centre"... Massey / Denton
+#"Positive values imply that poor individuals are relatively more concentrated near the centre compared with non-poor" Meng Le / Gwilym (where "poor" are equiv to x)
+
+#Let's change names to x and y to make clear
+df <- shef11.nogeog %>% 
+  dplyr::select(x = count_UK, y = count_nonUK, distance = distfromcentre_01ALFJ)
+
+df.sp <- shef11 %>% 
+  dplyr::select(x = count_UK, y = count_nonUK, distance = distfromcentre_01ALFJ)
+
+
+rci(x = df$x,y = df$y,sort.var = df$distance)
+
+plot(df.sp[,c('x','y')])
+
+st_write(df.sp,'saves/shapefiles/check.shp', delete_layer = T)
+
+
+#Or using the GP/MLZ paper notation:
+df <- shef11.nogeog %>% 
+  dplyr::select(a = count_UK, b = count_nonUK, distance = distfromcentre_01ALFJ, zone)
+
+df.sp <- shef11 %>% 
+  dplyr::select(a = count_UK, b = count_nonUK, distance = distfromcentre_01ALFJ, zone)
+
+
+rci_ab(a = df$a,b = df$b,sort.var = df$distance)
+
+plot(df.sp[,c('a','b')])
+
+
+#Edited version to make "a" definitely in the outside ring
+df$a <- 2
+
+#Got outer edge from QGIS
+df$a[df$zone %in% c(
+'05CGGD',
+'05CGGE',
+'05CGFG',
+'05CFFE',
+'05CFFR',
+'05CFFJ',
+'05CFFD',
+'05CFFP',
+'05CFFT',
+'05CFFA',
+'05CFFN',
+'18FTFL',
+'18FTFK',
+'18FTFX',
+'18FTFF',
+'18FTFG',
+'18FTFB',
+'18FQFN',
+'18FQFQ',
+'05CGFM'
+)] <- 10
+
+df.sp$a <- 2
+
+#Got outer edge from QGIS
+df.sp$a[df.sp$zone %in% c(
+'05CGGD',
+'05CGGE',
+'05CGFG',
+'05CFFE',
+'05CFFR',
+'05CFFJ',
+'05CFFD',
+'05CFFP',
+'05CFFT',
+'05CFFA',
+'05CFFN',
+'18FTFL',
+'18FTFK',
+'18FTFX',
+'18FTFF',
+'18FTFG',
+'18FTFB',
+'18FQFN',
+'18FQFQ',
+'05CGFM'
+)] <- 10
+
+
+plot(df.sp[,c('a','b')])
+
+rci_ab(a = df$a,b = df$b,sort.var = df$distance)
+
+st_write(df.sp,'saves/shapefiles/check_altered.shp', delete_layer = T)
+
+
+#~~~~~~~~~~~~~~~~~~~~~~
+#TESTING: ORDERING GRID ZONES BY DISTANCE; GROUPING ONES THAT ARE THE SAME----
+#~~~~~~~~~~~~~~~~~~~~~~
+
+#ie. rook contig cells will be grouped
+#And queen contig a different group
+#If we go out by more than one order, centroid distance then grouping should still work...
+
+#With new shapefile with actual squares, not rectangles
+
+#Apparently... Oh except, can't do on just one dimension?
+#https://r-spatial.github.io/sf/articles/sf3.html
+# gridedges.transform <- gridedges * 0.5
+
+
+#Test example (using prev. run grid creation code above.)
+#Get neighbour list
+gridedges.sp <- as_Spatial(gridedges)
+
+#Rook contig plz! We only want bordering cells
+neighbours.queen <- poly2nb(gridedges.sp, queen=T)
+
+
+
+#Pick an example with eight neighbours
+neighbours.queen[[25]]
+
+#Get those simple-features cells: 9 of em
+littlegroup <- gridedges[c(25,neighbours.queen[[25]]),]
+
+#Centroids
+littlegroup.c <- st_centroid(littlegroup)
+
+#Distance from central point. First row is centre, selected that above.
+littlegroup$distances <- st_distance(littlegroup.c[1,],littlegroup.c[1:9,], by_element = T)
+
+#Those should be in three distance groups: centre, rook, queen... now we have squares, tick!
+unique(littlegroup$distances)
+
+
+#So. If we want three groups for our RCI,
+#Need values to be ... well, population per unit of area probably, right?
+#I think sf might take care of that for us...
+littlegroup.rci <- littlegroup %>%
+  group_by(distances) %>% 
+  summarise(peeps1 = mean(peeps1), distance = mean(distances))
+
+plot(littlegroup.rci)
+
+#Is mean of four rook zones 0.8...? Yup
+tmap_mode("view")
+qtm(littlegroup %>% dplyr::select(peeps1))
+qtm(littlegroup.rci %>% dplyr::select(peeps1,distance))
+
+#Y is "first"
+rci(x = 1-littlegroup.rci$peeps1, y = littlegroup.rci$peeps1,sort.var = littlegroup.rci$distance)
+
+
+
+#Just also checking: for gridedges as a whole, peeps1 is more centralised, right?
+gridedges.centr <- st_centroid(gridedges)
+
+#Distance from central point. First row is centre, selected that above.
+gridedges$distances <- st_distance(gridedges.centr[25,],gridedges.centr, by_element = T)
+
+#Yup, positive, just.
+rci(1-gridedges$peeps1,gridedges$peeps1,gridedges$distances)
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#TEST RUNNING RCI ON EACH SIDE OF BORDER, FINDING VALUE FOR PEACHY INDEX----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#What shall we pass in? Something easier to work with
+#Just pass in the full sf?
+# gridedges.sp <- as_Spatial(gridedges)
+# 
+# #Rook contig plz! We only want bordering cells
+# neighbours <- poly2nb(gridedges.sp, queen=F)
+# #Except we also want to get little group surrounding cell...
+# neighbours.queen <- poly2nb(gridedges.sp, queen=T)
+
+debugonce(centralisationIndex_onEachSideOfBorder)
+
+x <- centralisationIndex_onEachSideOfBorder(data.sf = gridedges, var = "peeps1")
+
+#Get absolute contig diff values (via Nema code in permutation_tests)
+#Shifted over to function
+debugonce(aacd)
+aacd(data.sf = gridedges,var = "peeps1")
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Exponenting? (Answer: newp!)----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#Just testing whether exponenting values (so larger become much larger) helps in any way?
+#Note: exponentiating below zero values will shrink em. Not sure that gets us anywhere...
+#Oh no, it still does, curve-wise... (Lowers low values rather than raising high values, same curve)
+x = seq(from = 0.01, to = 1, by = 0.01)
+y = data.frame(id = x, x = x, y = x^2, z = x^3, a = x^4)
+
+ggplot(y %>% gather(key=key,value=value,x:a), aes(x = id, y = value, colour = key)) +
+  geom_line()
+
+
+y$diff = y$z-y$x
+plot(y$diff)
+
+#Trying...
+expvalue = 5
+
+gridedges.exp <- gridedges %>% 
+  mutate(peeps1exp = peeps1^expvalue)
+gridsmooth.exp <- gridsmooth %>% 
+  mutate(peeps1exp = peeps1^expvalue)
+
+x <- aacd(data.sf = gridedges.exp,var = "peeps1exp")[[1]]
+y <- aacd(data.sf = gridsmooth.exp,var = "peeps1exp")[[1]]
+
+#Get null. Permute exponentiated gridedges peeps1 values
+nullz <- list()
+for(i in 1:1000){
+  cat(i,'\n')
+  
+  z <- aacd(
+    gridedges.exp %>% mutate(permute = sample(peeps1exp,length(peeps1exp),replace = F)),
+    var = "permute")
+  
+  nullz[[length(nullz)+1]] <- z$mean
+  
+}
+
+nullz <- unlist(nullz)
+
+ggplot(data.frame(null = nullz), aes(x=nullz)) +
+  geom_density() +
+  geom_vline(xintercept = x, colour='red') +
+  geom_vline(xintercept = y, colour='green')
+
+
+#OR INSTEAD TRY EXPONENTING IN THE ACTUAL FUNCTION ON EACH AACD RESULT
+#Not sure that can make much difference, but... NEWP! Thought it did for a second there.
+expz = 1
+
+# debugonce(aacd)
+x <- aacd(data.sf = gridedge_centre,var = "peeps1",expz = expz)[[1]]
+y <- aacd(data.sf = gridsmooth,var = "peeps1",expz = expz)[[1]]
+
+nullz <- list()
+for(i in 1:50){
+  cat(i,'\n')
+  
+  z <- aacd(
+    gridedge_centre %>% mutate(permute = sample(peeps1,length(peeps1),replace = F)),
+    var = "permute", expz = expz)
+  
+  nullz[[length(nullz)+1]] <- z$mean
+}
+
+nullz <- unlist(nullz)
+
+ggplot(data.frame(null = nullz), aes(x=nullz)) +
+  geom_density() +
+  geom_vline(xintercept = x, colour='red') +
+  geom_vline(xintercept = y, colour='green')
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~
+#RCI * AACD combo----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#Check on gridedges, gridsmooth
+
+#Get null first. Slow, let's stick to 100 for quick test.
+library(doParallel)
+cl <- makeCluster(4)
+registerDoParallel(cl)
+
+x <- proc.time()
+foreach(icount(100),.combine = c) %dopar% {
+  
+  cat('ping!\n')
+  
+  library(sf)
+  library(spdep)
+  
+  permuted <- gridedges
+  permuted$permute <- sample(permuted$peeps1,length(permuted$peeps1),replace = F)
+  
+  a <- aacd(permuted, var = "permute")
+  
+  b <- centralisationIndex_onEachSideOfBorder(data.sf = permuted, var = "permute")
+  
+  #Multiply those two
+  mean(a$values * b$values)
+
+}
+proc.time()-x
+
+
+
+x <- proc.time()
+rci.aacd.nullz <- list()
+for(i in 1:100){
+  # cat(i,'\n')
+  
+  #Reminder: edges, smooth - same cells, just in different positions
+  # permuted <- gridedges %>% mutate(permute = sample(peeps1,length(peeps1),replace = F))
+  permuted <- gridedges
+  permuted$permute <- sample(permuted$peeps1,length(permuted$peeps1),replace = F)
+  
+  
+  a <- aacd(permuted, var = "permute")
+  
+  b <- centralisationIndex_onEachSideOfBorder(data.sf = permuted, var = "permute")
+  
+  #Multiply those two
+  rci.aacd.nullz[[length(rci.aacd.nullz)+1]] <- mean(a$values * b$values)
+  
+}
+proc.time()-x
+
+#Parallel is three times faster (though we can't see output...)
+
+rci.aacd.nullz <- unlist(rci.aacd.nullz)
+
+plot(density(rci.aacd.nullz))
+
+
+#Get same result for edges and smooth
+a.edges <- aacd(gridedges, var = "peeps1")
+b.edges <- centralisationIndex_onEachSideOfBorder(gridedges, var = "peeps1")
+
+#Multiply those two
+edges.rci.aacd <- mean(a.edges$values * b.edges$values)
+
+
+a.smooth <- aacd(gridsmooth, var = "peeps1")
+b.smooth <- centralisationIndex_onEachSideOfBorder(gridsmooth, var = "peeps1")
+
+#Multiply those two
+smooth.rci.aacd <- mean(a.smooth$values * b.smooth$values)
+
+
+ggplot(data.frame(null = rci.aacd.nullz), aes(x=null)) +
+  geom_density() +
+  geom_vline(xintercept = edges.rci.aacd, colour='red') +
+  geom_vline(xintercept = smooth.rci.aacd, colour='green')
+
+
+
+#~~~~~~~~~~~~~~~~~~~~
+#RCI * selective neighbour index (max) combo----
+#~~~~~~~~~~~~~~~~~~~~
+
+#Get null
+# library(doParallel)
+# cl <- makeCluster(4)
+# registerDoParallel(cl)
+
+x <- proc.time()
+
+#Doesn't like C++
+# null.rci.neigh <- foreach(icount(10),.combine = c) %dopar% {
+null.rci.neigh <- sapply(1:100, function(x) {
+
+  cat(x,'\n')
+  
+  # library(sf)
+  # library(spdep)
+  # Rcpp::sourceCpp("simfunctions.cpp")
+  
+  permuted <- gridedges
+  permuted$permute <- sample(permuted$peeps1,length(permuted$peeps1),replace = F)
+  
+  a <- centralisationIndex_onEachSideOfBorder(data.sf = permuted, var = "permute")
+  
+  b <- selectiveNeighbourIndex(permuted$permute,neighbours)#Neighbours should still be correct...
+  
+  #Multiply those two
+  mean(a$values * b)
+  
+})
+
+# }
+
+proc.time()-x
+
+plot(density(null.rci.neigh))
+
+
+a.edges <- centralisationIndex_onEachSideOfBorder(gridedges, var = "peeps1")
+b.edges <- selectiveNeighbourIndex(gridedges$peeps1, neighbours)
+
+#Multiply those two
+edges.rci.neigh <- mean(a.edges$values * b.edges)
+
+
+a.smooth <- centralisationIndex_onEachSideOfBorder(gridsmooth, var = "peeps1")
+b.smooth <- selectiveNeighbourIndex(gridsmooth$peeps1, neighbours)
+
+#Multiply those two
+smooth.rci.neigh <- mean(a.smooth$values * b.smooth)
+
+
+ggplot(data.frame(null = null.rci.neigh), aes(x=null)) +
+  geom_density() +
+  geom_vline(xintercept = edges.rci.neigh, colour='red') +
+  geom_vline(xintercept = smooth.rci.neigh, colour='green')
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~
+#RCI * selective neighbour index (min) combo----
+#~~~~~~~~~~~~~~~~~~~~
+
+#Get null
+# library(doParallel)
+# cl <- makeCluster(4)
+# registerDoParallel(cl)
+
+x <- proc.time()
+
+#Doesn't like C++
+# null.rci.neigh <- foreach(icount(10),.combine = c) %dopar% {
+null.rci.neigh.min <- sapply(1:100, function(x) {
+
+  cat(x,'\n')
+  
+  # library(sf)
+  # library(spdep)
+  # Rcpp::sourceCpp("simfunctions.cpp")
+  
+  permuted <- gridedges
+  permuted$permute <- sample(permuted$peeps1,length(permuted$peeps1),replace = F)
+  
+  a <- centralisationIndex_onEachSideOfBorder(data.sf = permuted, var = "permute")
+  
+  b <- selectiveNeighbourIndex(permuted$permute,neighbours, useNeighMax = F)#Neighbours should still be correct...
+  
+  #Multiply those two
+  mean(a$values * b)
+  
+})
+
+# }
+
+proc.time()-x
+
+plot(density(null.rci.neigh))
+
+
+a.edges <- centralisationIndex_onEachSideOfBorder(gridedges, var = "peeps1")
+b.edges <- selectiveNeighbourIndex(gridedges$peeps1, neighbours, useNeighMax = F)
+
+#Multiply those two
+edges.rci.neigh.min <- mean(a.edges$values * b.edges)
+
+
+a.smooth <- centralisationIndex_onEachSideOfBorder(gridsmooth, var = "peeps1")
+b.smooth <- selectiveNeighbourIndex(gridsmooth$peeps1, neighbours, useNeighMax = F)
+
+#Multiply those two
+smooth.rci.neigh.min <- mean(a.smooth$values * b.smooth)
+
+
+ggplot(data.frame(null = null.rci.neigh.min), aes(x=null)) +
+  geom_density() +
+  geom_vline(xintercept = edges.rci.neigh.min, colour='red') +
+  geom_vline(xintercept = smooth.rci.neigh.min, colour='green')
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~
+#MORAN * AACD----
+#~~~~~~~~~~~~~~~~~~~~
+
+#Get null
+# library(doParallel)
+# cl <- makeCluster(4)
+# registerDoParallel(cl)
+
+x <- proc.time()
+
+#Doesn't like C++
+# null.rci.neigh <- foreach(icount(10),.combine = c) %dopar% {
+
+null.moran.aacd <- sapply(1:100, function(x) {
+  
+  cat(x,'\n')
+  
+  # library(sf)
+  # library(spdep)
+  # Rcpp::sourceCpp("simfunctions.cpp")
+  
+  permuted <- gridedges
+  permuted$peeps1 <- sample(permuted$peeps1,nrow(permuted),replace = F)
+  permuted.sp <- as_Spatial(permuted)
+  
+  
+  a <- aacd(permuted, var = "peeps1")
+  
+  #Urgh, this has hardcoded variable names! Needs to be peeps1. What on earth was I thinking?
+  # debugonce(localMoransI_onEachSideOfBorder)
+  b <- localMoransI_onEachSideOfBorder(permuted$peeps1, neighbours, neighbours.queen, permuted.sp)
+  
+  #Multiply those two
+  mean(a$values * b$values)
+  
+})
+
+# }
+
+proc.time()-x
+
+plot(density(null.moran.aacd))
+
+
+a.edges <- aacd(gridedges, var = "peeps1")
+b.edges <- localMoransI_onEachSideOfBorder(gridedges$peeps1, neighbours, neighbours.queen, gridedges.sp)
+
+#Multiply those two
+edges.moran.aacd <- mean(a.edges$values * b.edges$values)
+
+
+a.smooth <- aacd(gridsmooth, var = "peeps1")
+b.smooth <- localMoransI_onEachSideOfBorder(gridsmooth$peeps1, neighbours, neighbours.queen, gridsmooth.sp)
+
+#Multiply those two
+smooth.moran.aacd <- mean(a.smooth$values * b.smooth$values)
+
+
+ggplot(data.frame(null = null.moran.aacd), aes(x=null)) +
+  geom_density() +
+  geom_vline(xintercept = edges.moran.aacd, colour='red') +
+  geom_vline(xintercept = smooth.moran.aacd, colour='green')
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#JUST PLAIN MORAN BY ITSELF....----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#Nowt unusual there
+
+x <- proc.time()
+
+null.moran <- sapply(1:100, function(x) {
+  
+  cat(x,'\n')
+  
+  permuted <- gridedges
+  permuted$peeps1 <- sample(permuted$peeps1,nrow(permuted),replace = F)
+  permuted.sp <- as_Spatial(permuted)
+  
+  
+  b <- localMoransI_onEachSideOfBorder(permuted$peeps1, neighbours, neighbours.queen, permuted.sp)
+  
+  #Multiply those two
+  mean(b$values)
+  
+})
+
+# }
+
+proc.time()-x
+
+plot(density(null.moran))
+
+
+b.edges <- localMoransI_onEachSideOfBorder(gridedges$peeps1, neighbours, neighbours.queen, gridedges.sp)
+
+#Multiply those two
+edges.moran <- mean(b.edges$values)
+
+
+b.smooth <- localMoransI_onEachSideOfBorder(gridsmooth$peeps1, neighbours, neighbours.queen, gridsmooth.sp)
+
+#Multiply those two
+smooth.moran <- mean(b.smooth$values)
+
+
+ggplot(data.frame(null = null.moran), aes(x=null)) +
+  geom_density() +
+  geom_vline(xintercept = edges.moran, colour='red') +
+  geom_vline(xintercept = smooth.moran, colour='green')
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~
+#MORAN * SELECTIVE NEIGHBOUR (MAX)----
+#~~~~~~~~~~~~~~~~~~~~
+
+#Get null
+# library(doParallel)
+# cl <- makeCluster(4)
+# registerDoParallel(cl)
+
+x <- proc.time()
+
+#Doesn't like C++
+# null.rci.neigh <- foreach(icount(10),.combine = c) %dopar% {
+
+null.moran.neigh <- sapply(1:100, function(x) {
+  
+  cat(x,'\n')
+  
+  # library(sf)
+  # library(spdep)
+  # Rcpp::sourceCpp("simfunctions.cpp")
+  
+  permuted <- gridedges
+  permuted$peeps1 <- sample(permuted$peeps1,nrow(permuted),replace = F)
+  permuted.sp <- as_Spatial(permuted)
+  
+  
+  a <- selectiveNeighbourIndex(permuted$peeps1,neighbours, useNeighMax = T)#Neighbours should still be correct...
+  
+  #Urgh, this has hardcoded variable names! Needs to be peeps1. What on earth was I thinking?
+  # debugonce(localMoransI_onEachSideOfBorder)
+  b <- localMoransI_onEachSideOfBorder(permuted$peeps1, neighbours, neighbours.queen, permuted.sp)
+  
+  #Multiply those two
+  mean(a * b$values)
+  
+})
+
+# }
+
+proc.time()-x
+
+plot(density(null.moran.neigh))
+
+
+a.edges <- selectiveNeighbourIndex(gridedges$peeps1, neighbours)
+b.edges <- localMoransI_onEachSideOfBorder(gridedges$peeps1, neighbours, neighbours.queen, gridedges.sp)
+
+#Multiply those two
+edges.moran.neigh <- mean(a.edges * b.edges$values)
+
+
+a.smooth <- selectiveNeighbourIndex(gridsmooth$peeps1, neighbours)
+b.smooth <- localMoransI_onEachSideOfBorder(gridsmooth$peeps1, neighbours, neighbours.queen, gridsmooth.sp)
+
+#Multiply those two
+smooth.moran.neigh <- mean(a.smooth * b.smooth$values)
+
+
+ggplot(data.frame(null = null.moran.neigh), aes(x=null)) +
+  geom_density() +
+  geom_vline(xintercept = edges.moran.neigh, colour='red') +
+  geom_vline(xintercept = smooth.moran.neigh, colour='green')
+
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~
+#MORAN * SELECTIVE NEIGHBOUR (MIN)----
+#~~~~~~~~~~~~~~~~~~~~
+
+#Get null
+# library(doParallel)
+# cl <- makeCluster(4)
+# registerDoParallel(cl)
+
+x <- proc.time()
+
+#Doesn't like C++
+# null.rci.neigh <- foreach(icount(10),.combine = c) %dopar% {
+
+null.moran.neigh.min <- sapply(1:100, function(x) {
+  
+  cat(x,'\n')
+  
+  # library(sf)
+  # library(spdep)
+  # Rcpp::sourceCpp("simfunctions.cpp")
+  
+  permuted <- gridedges
+  permuted$peeps1 <- sample(permuted$peeps1,nrow(permuted),replace = F)
+  permuted.sp <- as_Spatial(permuted)
+  
+  
+  a <- selectiveNeighbourIndex(permuted$peeps1,neighbours, useNeighMax = F)#Neighbours should still be correct...
+  
+  #Urgh, this has hardcoded variable names! Needs to be peeps1. What on earth was I thinking?
+  # debugonce(localMoransI_onEachSideOfBorder)
+  b <- localMoransI_onEachSideOfBorder(permuted$peeps1, neighbours, neighbours.queen, permuted.sp)
+  
+  #Multiply those two
+  mean(a * b$values)
+  
+})
+
+# }
+
+proc.time()-x
+
+plot(density(null.moran.neigh.min))
+
+
+a.edges <- selectiveNeighbourIndex(gridedges$peeps1, neighbours, useNeighMax = F)
+b.edges <- localMoransI_onEachSideOfBorder(gridedges$peeps1, neighbours, neighbours.queen, gridedges.sp)
+
+#Multiply those two
+edges.moran.neigh.min <- mean(a.edges * b.edges$values)
+
+
+a.smooth <- selectiveNeighbourIndex(gridsmooth$peeps1, neighbours, useNeighMax = F)
+b.smooth <- localMoransI_onEachSideOfBorder(gridsmooth$peeps1, neighbours, neighbours.queen, gridsmooth.sp)
+
+#Multiply those two
+smooth.moran.neigh.min <- mean(a.smooth * b.smooth$values)
+
+
+ggplot(data.frame(null = null.moran.neigh.min), aes(x=null)) +
+  geom_density() +
+  geom_vline(xintercept = edges.moran.neigh.min, colour='red') +
+  geom_vline(xintercept = smooth.moran.neigh.min, colour='green')
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~
+#AV IN VICINITY OF CELL * AACD----
+#~~~~~~~~~~~~~~~~~~~~~~
+
+#i.e. av welsh people in this cell and surrounding eight.
+#i.e. for each border, it's gonna be i not j. So values will repeat for those borders.
+#How to get those repeated for each border pair easily?
+
+#Currently with standard 7*8 grids
+#So this one is just plain neighbour av, which is:
+#neighbours.queen <- poly2nb(gridsmooth.sp,queen = T)
+#neighbours <- poly2nb(gridsmooth.sp,queen = F)
+m <-  nb2mat(neighbours.queen)
+#Actually, that's just repeating values a certain number of times. Must be easier way?
+#This works I think...
+#https://stackoverflow.com/questions/43186235/replicate-certain-values-in-vector-determined-by-other-vector
+
+#i is repeated for each border. Sum should be 97...ah, no, it's 194 of course!
+# repnumber <- sapply(neighbours,length)
+# repz <- rep()
+
+#Get null
+x <- proc.time()
+null.vicinity.aacd <- sapply(1:300, function(x) {
+  
+  cat(x,'\n')
+
+  permuted <- gridedges
+  permuted$peeps1 <- sample(permuted$peeps1,nrow(permuted),replace = F)
+  
+  a <- avInVicinityForEachBorderPair(m,permuted$peeps1)
+  b <- aacd(data.sf = permuted, var = 'peeps1')
+  
+  #Multiply those two
+  mean(a * b$values)
+  
+})
+proc.time()-x
+
+plot(density(null.vicinity.aacd))
+
+
+#SMOOTH
+lag4calc <- avInVicinityForEachBorderPair(m,gridsmooth$peeps1)
+#Get plain ol' ACD
+acd <- aacd(data.sf = gridsmooth, var = 'peeps1')
+
+#And final is just two multiplied / divided by total cell no
+smooth.vicinity.aacd <- mean(acd$values * lag4calc)
+
+#GRID
+lag4calc <- avInVicinityForEachBorderPair(m,gridedges$peeps1)
+#Get plain ol' ACD
+acd <- aacd(data.sf = gridedges, var = 'peeps1')
+
+#And final is just two multiplied / divided by total cell no
+edge.vicinity.aacd <- mean(acd$values * lag4calc)
+
+
+ggplot(data.frame(null = null.vicinity.aacd), aes(x=null)) +
+  geom_density() +
+  geom_vline(xintercept = edge.vicinity.aacd, colour='red') +
+  geom_vline(xintercept = smooth.vicinity.aacd, colour='green')
+
+
+data.frame(acd = acd$values, lag = lag4calc) %>% 
+  gather(key = thing, value = value) %>% 
+  ggplot(aes(x = thing, y = value)) +
+  geom_boxplot()
+
+
+#Look at both grid types one one plot
+# gridboth <- gridedges
+# gridboth <- gridboth %>% rename(peeps1edges = peeps1) %>% dplyr::select(-peeps2)
+# gridboth$peeps1smooth <- gridsmooth$peeps1
+# plot(gridboth)
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~
+#AV IN VICINITY OF CELL * SELECTIVE NEIGHBOUR (MAX)----
+#~~~~~~~~~~~~~~~~~~~~~~
+
+#i.e. av welsh people in this cell and surrounding eight.
+#i.e. for each border, it's gonna be i not j. So values will repeat for those borders.
+#How to get those repeated for each border pair easily?
+
+#Currently with standard 7*8 grids
+#So this one is just plain neighbour av, which is:
+#neighbours.queen <- poly2nb(gridsmooth.sp,queen = T)
+#neighbours <- poly2nb(gridsmooth.sp,queen = F)
+m <-  nb2mat(neighbours.queen)
+#Actually, that's just repeating values a certain number of times. Must be easier way?
+#This works I think...
+#https://stackoverflow.com/questions/43186235/replicate-certain-values-in-vector-determined-by-other-vector
+
+#i is repeated for each border. Sum should be 97...ah, no, it's 194 of course!
+# repnumber <- sapply(neighbours,length)
+# repz <- rep()
+
+#Get null
+x <- proc.time()
+null.vicinity.neighmax <- sapply(1:1000, function(x) {
+  
+  cat(x,'\n')
+  
+  permuted <- gridedges
+  permuted$peeps1 <- sample(permuted$peeps1,nrow(permuted),replace = F)
+  
+  a <- avInVicinityForEachBorderPair(m,permuted$peeps1)
+  b <- selectiveNeighbourIndex(permuted$peeps1,neighbours, useNeighMax = T)
+  
+  #Multiply those two
+  mean(a * b)
+  
+})
+proc.time()-x
+
+plot(density(null.vicinity.aacd))
+
+
+#SMOOTH
+a <- avInVicinityForEachBorderPair(m,gridsmooth$peeps1)
+b <- selectiveNeighbourIndex(gridsmooth$peeps1,neighbours, useNeighMax = T)
+
+#And final is just two multiplied / divided by total cell no
+smooth.vicinity.neighmax <- mean(a*b)
+
+#GRID
+a <- avInVicinityForEachBorderPair(m,gridedges$peeps1)
+b <- selectiveNeighbourIndex(gridedges$peeps1,neighbours, useNeighMax = T)
+
+#And final is just two multiplied / divided by total cell no
+edge.vicinity.neighmax <- mean(a*b)
+
+
+ggplot(data.frame(null = null.vicinity.neighmax), aes(x=null)) +
+  geom_density() +
+  geom_vline(xintercept = edge.vicinity.neighmax, colour='red') +
+  geom_vline(xintercept = smooth.vicinity.neighmax, colour='green')
+
+
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~
+#AV IN VICINITY OF CELL * RCI * AACD----
+#~~~~~~~~~~~~~~~~~~~~~~
+
+m <-  nb2mat(neighbours.queen)
+
+#Get null
+x <- proc.time()
+null.vicinity.rci.aacd <- sapply(1:100, function(x) {
+  
+  cat(x,'\n')
+  
+  permuted <- gridedges
+  permuted$peeps1 <- sample(permuted$peeps1,nrow(permuted),replace = F)
+  
+  a <- avInVicinityForEachBorderPair(m,permuted$peeps1)
+  b <- aacd(data.sf = permuted, var = 'peeps1')
+  c <- centralisationIndex_onEachSideOfBorder(data.sf = permuted, var = "peeps1")
+  
+  #Multiply those two
+  mean(a * b$values * c$values)
+  
+})
+proc.time()-x
+
+plot(density(null.vicinity.rci.aacd))
+
+
+#SMOOTH
+a <- avInVicinityForEachBorderPair(m,gridsmooth$peeps1)
+b <- aacd(data.sf = gridsmooth, var = 'peeps1')
+c <- centralisationIndex_onEachSideOfBorder(data.sf = gridsmooth, var = "peeps1")
+
+#And final is just two multiplied / divided by total cell no
+smooth.vicinity.rci.aacd <- mean(a * b$values * c$values)
+
+#GRID
+a <- avInVicinityForEachBorderPair(m,gridedges$peeps1)
+b <- aacd(data.sf = gridedges, var = 'peeps1')
+c <- centralisationIndex_onEachSideOfBorder(data.sf = gridedges, var = "peeps1")
+
+#And final is just two multiplied / divided by total cell no
+edge.vicinity.rci.aacd <- mean(a * b$values * c$values)
+
+
+
+ggplot(data.frame(null = null.vicinity.rci.aacd), aes(x=null)) +
+  geom_density() +
+  geom_vline(xintercept = edge.vicinity.rci.aacd, colour='red') +
+  geom_vline(xintercept = smooth.vicinity.rci.aacd, colour='green')
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~
+#AV IN VICINITY OF CELL * RCI * SELECTIVE NEIGHBOUR (MAX)----
+#~~~~~~~~~~~~~~~~~~~~~~
+
+m <-  nb2mat(neighbours.queen)
+
+#Get null
+x <- proc.time()
+null.vicinity.rci.neighmax <- sapply(1:100, function(x) {
+  
+  cat(x,'\n')
+  
+  permuted <- gridedges
+  permuted$peeps1 <- sample(permuted$peeps1,nrow(permuted),replace = F)
+  
+  a <- avInVicinityForEachBorderPair(m,permuted$peeps1)
+  b <- selectiveNeighbourIndex(permuted$peeps1,neighbours, useNeighMax = T)
+  c <- centralisationIndex_onEachSideOfBorder(data.sf = permuted, var = "peeps1")
+  
+  #Multiply those two
+  mean(a * b * c$values)
+  
+})
+proc.time()-x
+
+plot(density(null.vicinity.rci.neighmax))
+
+
+#SMOOTH
+a <- avInVicinityForEachBorderPair(m,gridsmooth$peeps1)
+b <- selectiveNeighbourIndex(gridsmooth$peeps1,neighbours, useNeighMax = T)
+c <- centralisationIndex_onEachSideOfBorder(data.sf = gridsmooth, var = "peeps1")
+
+#And final is just two multiplied / divided by total cell no
+smooth.vicinity.rci.neighmax <- mean(a * b * c$values)
+
+#GRID
+a <- avInVicinityForEachBorderPair(m,gridedges$peeps1)
+b <- selectiveNeighbourIndex(gridedges$peeps1,neighbours, useNeighMax = T)
+c <- centralisationIndex_onEachSideOfBorder(data.sf = gridedges, var = "peeps1")
+
+#And final is just two multiplied / divided by total cell no
+edge.vicinity.rci.neighmax <- mean(a * b * c$values)
+
+
+
+ggplot(data.frame(null = null.vicinity.rci.neighmax), aes(x=null)) +
+  geom_density() +
+  geom_vline(xintercept = edge.vicinity.rci.neighmax, colour='red') +
+  geom_vline(xintercept = smooth.vicinity.rci.neighmax, colour='green')
+
+
+
+
+
+
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~
+#CREATE LARGER GRID----
+#~~~~~~~~~~~~~~~~~~~~~~
+
+#But with similar patterning. Previous is 7*8
+#Have to make in QGIS to keep sizes square. Double the size? 14*16
+
+gridsmooth <- st_read('saves/shapefiles/7by8gridSquare.shp')
+gridedges <- st_read('saves/shapefiles/7by8gridSquare.shp')
+
+#Of course, it would be oriented completely differently. Can I use ID to fix?
+plot(gridsmooth)
+
+#Reorient via ID so order is top-left across
+neworder <- list()
+for(i in 1:7) neworder[[length(neworder)+1]] <- seq(from=i, to=56, by=7)
+
+gridsmooth$id <- unlist(neworder)
+gridsmooth <- gridsmooth %>% arrange(id)
+
+gridedges$id <- unlist(neworder)
+gridedges <- gridedges %>% arrange(id)
+
+
+
+#Coding values directly from G (left to right)
+#G uses single value - for DI for two pops, the other peeps are 1-x
+gridsmooth$peeps1 <- c(0.05,0.2,0.4,0.6,0.8,0.8,0.8,
+                       0.05,0.2,0.4,0.6,0.8,0.8,0.8,
+                       0.05,0.2,0.4,0.6,0.6,0.8,0.8,
+                       0.05,0.2,0.4,0.6,0.6,0.6,0.6,
+                       0.05,0.2,0.4,0.4,0.4,0.4,0.4,
+                       0.05,0.2,0.2,0.2,0.2,0.2,0.2,
+                       0.05,0.2,0.2,0.2,0.2,0.2,0.2,
+                       0.05,0.05,0.05,0.05,0.05,0.05,0.05)
+gridsmooth$peeps2 <- 1 - gridsmooth$peeps1
+
+gridedges$peeps1 <- c(0.2,0.4,0.4,0.4,0.4,0.4,0.2,
+                      0.2,0.2,0.2,0.05,0.2,0.2,0.4,
+                      0.2,0.2,0.05,0.8,0.05,0.6,0.4,
+                      0.2,0.05,0.8,0.8,0.8,0.05,0.4,
+                      0.2,0.05,0.8,0.8,0.8,0.05,0.4,
+                      0.2,0.05,0.05,0.8,0.05,0.05,0.6,
+                      0.2,0.6,0.05,0.05,0.05,0.6,0.2,
+                      0.2,0.2,0.6,0.6,0.6,0.6,0.2)
+gridedges$peeps2 <- 1 - gridedges$peeps1
+
+plot(gridsmooth)
+plot(gridedges)
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#PREPPING 16X16 SIM CITIES----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#First prepped in excel
+#CSV contains three 16x16 cities stacked on top of one another:
+#1. Smooth, from top down. 
+#2 Edge with centre
+#3. Edge, smooth cut in half and shifted 4 cells so 0 is next to 1
+cities <- read_csv('larger_simcities_forcsv_16x16_3citiesstacked.csv',col_names = F)
+
+#Darn it, goes down rows then across. Of course it does. Harrumph!
+#Wouldn't matter if we hadn't joined three together, mind. Still...
+cities.c <- as.numeric(unlist(cities))
+
+#More faff required...
+smooth.c <- cities[1:16,] %>% as.matrix()
+smooth.c <- t(smooth.c)
+smooth.c <- as.numeric(smooth.c)
+
+edge.c <- cities[17:32,] %>% as.matrix()
+edge.c <- t(edge.c)
+edge.c <- as.numeric(edge.c)
+
+edgesplit.c <- cities[33:48,] %>% as.matrix()
+edgesplit.c <- t(edgesplit.c)
+edgesplit.c <- as.numeric(edgesplit.c)
+
+#Order seems incredibly random in QGIS grid version! How odd.
+#Let's try sf instead. Use same shapefile as base to make grid on...
+base <- st_read('saves/shapefiles/16by16gridSquare.shp')
+
+#Create new grid over top... ah ha, is now in right order!!
+gridsmooth <- st_make_grid(base,n=c(16,16)) %>% st_sf()
+gridsmooth$id <- c(1:256)
+plot(gridsmooth)
+
+#Repeat for other two. Might want to put in list to process better once made.
+gridedge_centre <- st_make_grid(base,n=c(16,16)) %>% st_sf()
+gridedge_centre$id <- c(1:256)
+plot(gridedge_centre)
+
+gridedge_split <- st_make_grid(base,n=c(16,16)) %>% st_sf()
+gridedge_split$id <- c(1:256)
+plot(gridedge_split)
+
+#Add data from cities
+gridsmooth$peeps1 <- smooth.c
+gridedge_centre$peeps1 <- edge.c
+gridedge_split$peeps1 <- edgesplit.c
+
+#Check those all contain the same values... tick
+table(gridsmooth$peeps1[order(gridsmooth$peeps1)]==gridedge_centre$peeps1[order(gridedge_centre$peeps1)])
+table(gridedge_split$peeps1[order(gridedge_split$peeps1)]==gridedge_centre$peeps1[order(gridedge_centre$peeps1)])
+
+
+ncol=16
+nrow=16
+cutoff=0
+
+#Check on optimised version for basic AACD.
+#Orig version should still work for optimisation even if actual val is wrong (is double-counting)
+smoothAACD <- getAverageAbsoluteContiguousDifference(gridsmooth$peeps1, ncol = ncol, nrow = nrow, cutoff = cutoff, torus = F)
+edgecentreAACD <- getAverageAbsoluteContiguousDifference(gridedge_centre$peeps1, ncol = ncol, nrow = nrow, cutoff = cutoff, torus = F)
+edgesplitAACD <- getAverageAbsoluteContiguousDifference(gridedge_split$peeps1, ncol = ncol, nrow = nrow, cutoff = cutoff, torus = F)
+
+actualAACDs <- data.frame(type = c('smooth','edge'), AACD = c(smoothAACD,edgeAACD), cutoff = cutoff)
+
+#will be same for any of the 3, same values...
+permute16 = getRepeatedAACDfromPermutedCells(attribute = gridsmooth$peeps1, ncol = ncol, nrow = nrow, numreps = 200000, cutoff = cutoff, torus=F)
+
+#Err. I wanted to optimise didn't I?
+ggplot(data.frame(null = permute16), aes(x=null)) +
+  geom_density() +
+  geom_vline(xintercept = smoothAACD, colour='red') +
+  geom_vline(xintercept = edgecentreAACD, colour='green') +
+  geom_vline(xintercept = edgesplitAACD, colour='blue')
+
+
+#ALSO TRYING WITH SQUARED / OTHER EXPONENT VALUES TO SEE IF MAKES DIFF...newp! Well some, but...
+expz=9
+
+smoothAACD <- getAverageAbsoluteContiguousDifference(gridsmooth$peeps1^expz, ncol = ncol, nrow = nrow, cutoff = cutoff, torus = F)
+edgecentreAACD <- getAverageAbsoluteContiguousDifference(gridedge_centre$peeps1^expz, ncol = ncol, nrow = nrow, cutoff = cutoff, torus = F)
+edgesplitAACD <- getAverageAbsoluteContiguousDifference(gridedge_split$peeps1^expz, ncol = ncol, nrow = nrow, cutoff = cutoff, torus = F)
+
+# actualAACDs <- data.frame(type = c('smooth','edge'), AACD = c(smoothAACD,edgeAACD), cutoff = cutoff)
+
+#will be same for any of the 3, same values...
+permute16 = getRepeatedAACDfromPermutedCells(attribute = gridsmooth$peeps1^expz, ncol = ncol, nrow = nrow, numreps = 200000, cutoff = cutoff, torus=F)
+
+#Err. I wanted to optimise didn't I?
+ggplot(data.frame(null = permute16), aes(x=null)) +
+  geom_density() +
+  geom_vline(xintercept = smoothAACD, colour='red') +
+  geom_vline(xintercept = edgecentreAACD, colour='green') +
+  geom_vline(xintercept = edgesplitAACD, colour='blue')
+
+
+
+
+
+#Min and max...
+min <- optimiseAverageAbsoluteContiguousDifference(attribute = gridsmooth$peeps1, 
+                                                   secondpop = 1-gridsmooth$peeps1,
+                                                   ncol = ncol, nrow = nrow, cutoff = 0, maximise = F, breakval = 1000000)
+
+
+#Min from random - will be different optimised pattern. Smooth is already min, nowhere to go...
+gridsmooth$randomised <- gridsmooth$peeps1[sample(1:nrow(gridsmooth),replace=F)]
+minfromrandom <- optimiseAverageAbsoluteContiguousDifference(attribute = gridsmooth$randomised, 
+                                                   secondpop = 1-gridsmooth$randomised,
+                                                   ncol = ncol, nrow = nrow, cutoff = 0, maximise = F, breakval = 3000000)
+
+max <- optimiseAverageAbsoluteContiguousDifference(attribute = gridsmooth$peeps1, 
+                                                   secondpop = 1-gridsmooth$peeps1,
+                                                   ncol = ncol, nrow = nrow, cutoff = 0, maximise = T, breakval = 1000000)
+
+minaacd = getAverageAbsoluteContiguousDifference(min$attribute, ncol = ncol, nrow = nrow, cutoff=0)
+maxaacd = getAverageAbsoluteContiguousDifference(max$attribute, ncol = ncol, nrow = nrow, cutoff=0)
+
+gridopt <- gridsmooth
+gridopt$min <- min$attribute
+gridopt$minfromrandom <- minfromrandom$attribute
+gridopt$max <- max$attribute
+
+plot(gridopt[,'min'])#Makes sense: this is likely the absolute minimum.
+plot(gridopt[,'minfromrandom'])
+plot(gridopt[,'max'])#Yup!
+
+
+#~~~~~~~~~~~~~~
+#VARIOGRAM?----
+#~~~~~~~~~~~~~~
+
+#https://stats.idre.ucla.edu/r/faq/how-do-i-generate-a-variogram-for-spatial-data-in-r/
+library(geoR)
+
+#http://www.leg.ufpr.br/geoR/geoRdoc/geoRintro.html
+data(s100)
+
+#OK, so how to make our smooth data into something this can read?
+smooth.geor <- gridsmooth %>% st_set_geometry(NULL)
+st_coordinates(gridsmooth)[,c(1,2)]
+
+#Add coordinates (should be centroids, I think...)
+smooth.geor <- cbind(gridsmooth %>% st_set_geometry(NULL),st_coordinates(st_centroid(gridsmooth))[,c(1,2)])
+
+edge1.geor <- cbind(gridedge_centre %>% st_set_geometry(NULL),st_coordinates(st_centroid(gridedge_centre))[,c(1,2)]) 
+
+edge2.geor <- cbind(gridedge_split %>% st_set_geometry(NULL),st_coordinates(st_centroid(gridedge_split))[,c(1,2)]) 
+
+#chessboard...
+chessboard.geor <- cbind(gridopt %>% st_set_geometry(NULL) %>% dplyr::select(max),
+                         st_coordinates(st_centroid(gridopt))[,c(1,2)]) 
+
+
+#max distance for variogram is...
+st_bbox(gridsmooth)[3]-st_bbox(gridsmooth)[1]
+
+#Now, um...
+x <- variog(coords = smooth.geor[,c('X','Y')], data = smooth.geor$peeps1, uvec=seq(0,8000,l=50))
+plot(x)
+
+y <- variog(coords = edge1.geor[,c('X','Y')], data = edge1.geor$peeps1, uvec=seq(0,8000,l=50))
+plot(y)
+
+a <- variog(coords = edge2.geor[,c('X','Y')], data = edge2.geor$peeps1, uvec=seq(0,8000,l=50))
+plot(a)
+
+z <- variog(coords = chessboard.geor[,c('X','Y')], data = chessboard.geor$max, uvec=seq(0,8000,l=50))
+plot(z)
+
+#Oh, needs to be ggplot. Harrumph.
+#cowplot::plot_grid(plotlist = list(x,y,a,z), labels = c('smooth','edge centre','edge split','chessboard'))
+
+
+
+
+
+
+#Looking at the full data... Well, not much use
+x <- variog(coords = smooth.geor[,c('X','Y')], option='cloud',data = smooth.geor$peeps1, uvec=seq(0,8000,l=50))
+plot(x)
+
+y <- variog(coords = edge1.geor[,c('X','Y')], option='cloud', data = edge1.geor$peeps1, uvec=seq(0,8000,l=50))
+plot(y)
+
+a <- variog(coords = edge2.geor[,c('X','Y')], option='cloud', data = edge2.geor$peeps1, uvec=seq(0,8000,l=50))
+plot(a)
+
+z <- variog(coords = chessboard.geor[,c('X','Y')], option='cloud', data = chessboard.geor$max, uvec=seq(0,8000,l=50))
+plot(z)
+
+
+#Boxplots might be better... hmm, nah?
+x <- variog(coords = smooth.geor[,c('X','Y')], data = smooth.geor$peeps1, uvec=seq(0,8000,l=50), bin.cloud=T)
+plot(x)
+plot(x, bin.cloud=T)
+
+z <- variog(coords = chessboard.geor[,c('X','Y')], data = chessboard.geor$max, uvec=seq(0,8000,l=50), bin.cloud=T)
+plot(z, bin.cloud=T)
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#MAKE OWN VARIOGRAM WITH ABSOLUTE DIFFS----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#Using the same cities as before. For this, we're gonna need a full distance matrix
+#And a way to convert to pairs to then bin distances to find absolute differences
+#Something I did somewhere a while back, but let's start from scratch...
+
+#Shifted all to function
+x=acd_variogram(gridsmooth,'peeps1')
+y=acd_variogram(gridedge_centre,'peeps1')
+z=acd_variogram(gridedge_split,'peeps1')
+#Chessboard pattern
+a=acd_variogram(gridopt,'max')
+#Minimised from random (so new smooth pattern)
+b=acd_variogram(gridopt,'minfromrandom')
+
+plot_grid(plotlist = list(x,y,z,a,b),labels=c('smooth','edge centre','edge split','chessboard','min from random'))
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#ADD EXTRA LAG TO CENTRALISATION INDEX----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#testing how I think that works
+gridsmooth.sp <- as_Spatial(gridsmooth)
+gridsmooth.neighbours <- poly2nb(gridsmooth.sp, queen=T)
+
+#https://rdrr.io/rforge/spdep/man/nblag.html
+gridsmooth.neighbours.2 <- nblag(gridsmooth.neighbours,maxlag = 3)
+gridsmooth.neighbours.2 <- nblag_cumul(gridsmooth.neighbours.2)#Combine into one list
+
+#Those two are same
+gridsmooth.neighbours.2[[25]]
+gridsmooth.neighbours[[25]]
+
+#Second index contains 2nd order lag
+gridsmooth.neighbours.2[[2]]
+
+#So in theory, to get specific set of neighbours and lag, collapse both?
+c(gridsmooth.neighbours.2[[1]][[25]],gridsmooth.neighbours.2[[2]][[25]])
+
+#Is that right? Yes, although... how is that 25?? Is it upside down??
+gridsmooth$check <- 0
+gridsmooth$check[gridsmooth.neighbours.2[[150]]] <- 1
+
+#Is that right? Yes, although... how is that 25?? Is it upside down?? Would appear so. Huh.
+gridsmooth$check <- 0
+gridsmooth$check[25] <- 1
+gridsmooth$check[gridsmooth$id==25] <- 1
+
+plot(gridsmooth)
+
+#OK, that's the code anyway. Now to add to centralisation thingyo.
+
+
+
+
+
+
 
 
 

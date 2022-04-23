@@ -2467,26 +2467,26 @@ ggplot(data.frame(null = nullz), aes(x=nullz)) +
 
 #Check on gridedges, gridsmooth
 
-#Get null first. Slow, let's stick to 100 for quick test.
+# Get null first. Slow, let's stick to 100 for quick test.
 library(doParallel)
 cl <- makeCluster(4)
 registerDoParallel(cl)
 
 x <- proc.time()
 foreach(icount(100),.combine = c) %dopar% {
-  
+
   cat('ping!\n')
-  
+
   library(sf)
   library(spdep)
-  
+
   permuted <- gridedges
   permuted$permute <- sample(permuted$peeps1,length(permuted$peeps1),replace = F)
-  
+
   a <- aacd(permuted, var = "permute")
-  
+
   b <- centralisationIndex_onEachSideOfBorder(data.sf = permuted, var = "permute")
-  
+
   #Multiply those two
   mean(a$values * b$values)
 
@@ -2504,7 +2504,6 @@ for(i in 1:100){
   # permuted <- gridedges %>% mutate(permute = sample(peeps1,length(peeps1),replace = F))
   permuted <- gridedges
   permuted$permute <- sample(permuted$peeps1,length(permuted$peeps1),replace = F)
-  
   
   a <- aacd(permuted, var = "permute")
   
@@ -3457,7 +3456,7 @@ a=acd_variogram(gridopt,'max')
 #Minimised from random (so new smooth pattern)
 b=acd_variogram(gridopt,'minfromrandom')
 
-plot_grid(plotlist = list(x,y,z,a,b),labels=c('smooth','edge centre','edge split','chessboard','min from random'))
+plot_grid(plotlist = list(x,y,z,a,b),labels=c('smooth','edge centre','edge split','chessboard','min from random'),ncol = 2)
 
 
 
@@ -3494,7 +3493,302 @@ gridsmooth$check[gridsmooth$id==25] <- 1
 
 plot(gridsmooth)
 
-#OK, that's the code anyway. Now to add to centralisation thingyo.
+
+
+#OK, that's the code anyway. Added to centralisation thingyo. Test...
+debugonce(centralisationIndex_onEachSideOfBorder)
+centralisationIndex_onEachSideOfBorder(gridsmooth, var = "peeps1",lag = 1)
+centralisationIndex_onEachSideOfBorder(gridsmooth, var = "peeps1",lag = 3)
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#SAVE VARIOUS NEW GRIDS AS RDSs----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+saveRDS(gridsmooth %>% dplyr::select(-randomised,-check),"saves/grids_rds/smooth.rds")
+saveRDS(gridedge_centre,"saves/grids_rds/edge_centre.rds")
+saveRDS(gridedge_split,"saves/grids_rds/edge_split.rds")
+saveRDS(gridopt,"saves/grids_rds/aacd_optimised.rds")
+
+#Create single one containing all just to show together
+singleone <- gridsmooth
+
+singleone$smooth <- singleone$peeps1
+singleone$edge_centre <- gridedge_centre$peeps1
+singleone$edge_split <- gridedge_split$peeps1
+singleone$chessboard <- gridopt$max
+
+singleone <- singleone %>% 
+  dplyr::select(-id,-peeps1,-randomised,-check)
+
+plot(singleone)
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~----
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#REPEAT SOME TESTS FOR LARGER CITIES / WITH ADDITIONS----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#CHECK JUST AACD----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+x <- proc.time()
+null.aacd <- sapply(1:150, function(x) {
+  
+  cat(x,'\n')
+  
+  permuted <- gridedge_centre
+  permuted$peeps1 <- sample(permuted$peeps1,nrow(permuted),replace = F)
+  
+  a <- aacd(data.sf = permuted, var = 'peeps1')
+  
+  mean(a$values)
+  
+})
+proc.time()-x
+
+plot(density(null.aacd))
+
+
+#Get plain ol' ACD
+acd <- aacd(data.sf = gridsmooth, var = 'peeps1')
+
+#And final is just two multiplied / divided by total cell no
+smooth.aacd <- mean(acd$values)
+
+#GRID
+acd <- aacd(data.sf = gridedge_centre, var = 'peeps1')
+
+edge_centre.aacd <- mean(acd$values)
+
+
+acd <- aacd(data.sf = gridedge_split, var = 'peeps1')
+
+edge_split.aacd <- mean(acd$values)
+
+
+a.chess <- aacd(gridopt, var = "max")
+
+chess.aacd <- mean(a.chess$values)
+
+
+
+ggplot(data.frame(null = null.aacd), aes(x=null)) +
+  geom_density() +
+  geom_vline(xintercept = edge_centre.aacd, colour='red') +
+  geom_vline(xintercept = edge_split.aacd, colour='blue') +
+  geom_vline(xintercept = chess.aacd, colour='orange') +
+  geom_vline(xintercept = smooth.aacd, colour='green')
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#1. AV VICINITY W EXPONENT AND LARGER LAG * AACD----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#While we're waiting on me getting round to making this all smoother and more functional
+#Let's just try a few and see.
+
+#Get larger lag....
+gridsmooth.sp <- as_Spatial(gridsmooth)
+neighbours.queen <- poly2nb(gridsmooth.sp, queen=T)
+#For working through bordering pairs
+neighbours <- poly2nb(gridsmooth.sp, queen=F)
+
+#https://rdrr.io/rforge/spdep/man/nblag.html
+x <- nblag(neighbours.queen,maxlag = 5)
+neighbours.queen <- nblag_cumul(x)
+
+m <-  nb2mat(neighbours.queen)
+
+exponent = 2
+
+#Get null
+x <- proc.time()
+null.vicinity.aacd <- sapply(1:150, function(x) {
+  
+  cat(x,'\n')
+  
+  permuted <- gridedge_centre
+  permuted$peeps1 <- sample(permuted$peeps1,nrow(permuted),replace = F)
+  
+  debugonce(avInVicinityForEachBorderPair)
+  a <- avInVicinityForEachBorderPair(m,neighbours,permuted$peeps1,exponent = exponent)
+  b <- aacd(data.sf = permuted, var = 'peeps1')
+  
+  #Multiply those two
+  mean(a * b$values)
+  
+})
+proc.time()-x
+
+plot(density(null.vicinity.aacd))
+
+
+#SMOOTH
+lag4calc <- avInVicinityForEachBorderPair(m,neighbours,gridsmooth$peeps1,exponent = exponent)
+#Get plain ol' ACD
+acd <- aacd(data.sf = gridsmooth, var = 'peeps1')
+
+#And final is just two multiplied / divided by total cell no
+smooth.vicinity.aacd <- mean(acd$values * lag4calc)
+
+
+#GRID
+lag4calc <- avInVicinityForEachBorderPair(m,neighbours,gridedge_centre$peeps1,exponent = exponent)
+#Get plain ol' ACD
+acd <- aacd(data.sf = gridedge_centre, var = 'peeps1')
+
+#And final is just two multiplied / divided by total cell no
+edge_centre.vicinity.aacd <- mean(acd$values * lag4calc)
+
+
+lag4calc <- avInVicinityForEachBorderPair(m,neighbours,gridedge_split$peeps1,exponent = exponent)
+#Get plain ol' ACD
+acd <- aacd(data.sf = gridedge_split, var = 'peeps1')
+
+#And final is just two multiplied / divided by total cell no
+edge_split.vicinity.aacd <- mean(acd$values * lag4calc)
+
+
+
+a.chess <- aacd(gridopt, var = "max")
+lag4calc <- avInVicinityForEachBorderPair(m,neighbours,gridopt$max,exponent = exponent)
+
+#Multiply those two
+chess.vicinity.aacd <- mean(lag4calc * a.chess$values)
+
+
+
+ggplot(data.frame(null = null.vicinity.aacd), aes(x=null)) +
+  geom_density() +
+  geom_vline(xintercept = edge_centre.vicinity.aacd, colour='red') +
+  geom_vline(xintercept = edge_split.vicinity.aacd, colour='blue') +
+  geom_vline(xintercept = chess.rci.aacd, colour='orange') +
+  geom_vline(xintercept = smooth.vicinity.aacd, colour='green')
+
+
+data.frame(acd = acd$values, lag = lag4calc) %>% 
+  gather(key = thing, value = value) %>% 
+  ggplot(aes(x = thing, y = value)) +
+  geom_boxplot()
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#2. CENTRALISATION INDEX W LARGER LAG * AACD----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+# library(doParallel)
+# cl <- makeCluster(4)
+# registerDoParallel(cl)
+# 
+# x <- proc.time()
+# foreach(icount(100),.combine = c) %dopar% {
+#   
+#   cat('ping!\n')
+#   
+#   library(sf)
+#   library(spdep)
+#   
+#   permuted <- gridedge_centre
+#   permuted$permute <- sample(permuted$peeps1,length(permuted$peeps1),replace = F)
+#   
+#   a <- aacd(permuted, var = "permute")
+#   
+#   b <- centralisationIndex_onEachSideOfBorder(data.sf = permuted, var = "permute", lag = 1)
+#   
+#   #Multiply those two
+#   mean(a$values * b$values)
+#   
+# }
+# proc.time()-x
+
+
+lag=4
+x <- proc.time()
+rci.aacd.nullz <- list()
+for(i in 1:10){
+  cat(i,'\n')
+  
+  #Reminder: edges, smooth - same cells, just in different positions
+  # permuted <- gridedges %>% mutate(permute = sample(peeps1,length(peeps1),replace = F))
+  permuted <- gridedge_centre
+  permuted$permute <- sample(permuted$peeps1,length(permuted$peeps1),replace = F)
+  
+  a <- aacd(permuted, var = "permute")
+  
+  b <- centralisationIndex_onEachSideOfBorder(data.sf = permuted, var = "permute", lag = lag)
+  
+  #Multiply those two
+  rci.aacd.nullz[[length(rci.aacd.nullz)+1]] <- mean(a$values * b$values)
+  
+}
+proc.time()-x
+
+#Parallel is three times faster (though we can't see output...)
+
+rci.aacd.nullz <- unlist(rci.aacd.nullz)
+plot(density(rci.aacd.nullz))
+
+
+#Get same result for edges and smooth
+a.edges_centre <- aacd(gridedge_centre, var = "peeps1")
+b.edges_centre <- centralisationIndex_onEachSideOfBorder(gridedge_centre, var = "peeps1",lag=lag)
+
+#Multiply those two... which now has NAs in, poosticks.
+edges_centre.rci.aacd <- mean(a.edges_centre$values * b.edges_centre$values)
+
+
+#Get same result for edges and smooth
+a.edges_split <- aacd(gridedge_split, var = "peeps1")
+b.edges_split <- centralisationIndex_onEachSideOfBorder(gridedge_split, var = "peeps1",lag=lag)
+
+#Multiply those two
+edges_split.rci.aacd <- mean(a.edges_split$values * b.edges_split$values)
+
+
+a.smooth <- aacd(gridsmooth, var = "peeps1")
+b.smooth <- centralisationIndex_onEachSideOfBorder(gridsmooth, var = "peeps1",lag=lag)
+
+#Multiply those two
+smooth.rci.aacd <- mean(a.smooth$values * b.smooth$values)
+
+
+a.chess <- aacd(gridopt, var = "max")
+b.chess <- centralisationIndex_onEachSideOfBorder(gridopt, var = "max",lag=lag)
+
+#Multiply those two
+chess.rci.aacd <- mean(a.chess$values * b.chess$values)
+
+
+
+ggplot(data.frame(null = rci.aacd.nullz), aes(x=null)) +
+  geom_density() +
+  geom_vline(xintercept = edges_centre.rci.aacd, colour='red') +
+  geom_vline(xintercept = edges_split.rci.aacd, colour='blue') +
+  geom_vline(xintercept = chess.rci.aacd, colour='orange') +
+  geom_vline(xintercept = smooth.rci.aacd, colour='green')
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

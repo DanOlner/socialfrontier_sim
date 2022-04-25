@@ -1339,14 +1339,16 @@ ggplot(mean_n_quantz, aes(x = type, y = mean)) +
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #Get somewhere. Err. London LSOAs?
-lsoas <- st_read('F:/Data/MapPolygons/England/2011/England_lsoa_2011_clipped/england_lsoa_2011_clipped.shp')
+lsoas <- st_read('data/England_lsoa_2011_clipped/england_lsoa_2011_clipped.shp')
 
 #Oh goddam it'll all be London local authority names...
 shef <- lsoas %>% 
   filter(grepl(pattern = 'Sheffield',x = .$name))
 
 #Ah, we need an attribute. Did we have some of those elsewhere for Sheffield?
-cob <- read_csv('C:/Users/Dan Olner/Dropbox/SheffieldMethodsInstitute/3D_printing2/data/countryOfBirth_Y&H_LSOA.csv')
+#Via 3D printing script
+#We want all of shef if poss, plz
+cob <- read_csv('data/countryOfBirth_Y&H_LSOA.csv')
 
 #345 seems like enough to be going with
 #plot(st_geometry(shef))
@@ -1361,10 +1363,6 @@ neighbours[[25]]
 Rcpp::sourceCpp("simfunctions.cpp")
 displayAllNeighbours(shef.sp$code,neighbours)
 
-
-#Via 3D printing script
-#We want all of shef if poss, plz
-cob <- read_csv('C:/Users/Dan Olner/Dropbox/SheffieldMethodsInstitute/3D_printing2/data/countryOfBirth_Y&H_LSOA.csv')
 
 #Tick
 table(shef.sp$code %in% cob$LSOA11CD)

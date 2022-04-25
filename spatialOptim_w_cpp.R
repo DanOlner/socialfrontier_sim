@@ -8,33 +8,37 @@ library(cowplot)
 theme_set(theme_grey())
 source('FUNCTIONS_optimiseAACD.R')
 
-# library(RcppArmadillo)
 #library(Rcpp)
-#source('SegregationIndicesDuncanLee.R')
+#for the C++ functions (mostly for the min / max hill climbing but also things like targetDissimilarityIndex that
+#target a specific DI value by changing #random cell values by a tiny amount until target value reached
 Rcpp::sourceCpp("simfunctions.cpp")
 
 #~~~~~~
 #DI----
 #~~~~~~
 
+#most of the code here uses a 'simple features' (sf) geographical data object made into a grid. Line 20 shows how a grid's made from scratch.
 grid <- raster(nrow = 30, ncol = 30) %>% rasterToPolygons() %>% as("sf")
 
 #Two random data columns
+#add random values for proportion of people (DI takes in 2 groups; for most of the code below, I instead set just one value and the other is x-1)
 grid$peeps1 <- runif(n = nrow(grid))
 grid$peeps2 <- runif(n = nrow(grid))
 
 
-#Initial DI using R function version
-dissimilarity(grid$peeps1, grid$peeps2)
+#Initial DI using R function version (no longer works)
+#dissimilarity(grid$peeps1, grid$peeps2)
 
+#C++ version
 dissimilarityindex(grid$peeps1,grid$peeps2)
 
-optz <- targetDissimilarityIndex(di_target = 1, threshold = 0.0000001, breakval = 1000000, grid$peeps1,grid$peeps2)
+#target a DI, returns nonspatial object
+optz <- targetDissimilarityIndex(di_target = 0.75, threshold = 0.0000001, breakval = 1000000, grid$peeps1,grid$peeps2)
 
 dissimilarityindex(optz$pop1,optz$pop2)
 
 
-#plot result
+#plot result - reattach non spatial optz to the sf object
 gridresult = grid
 gridresult$peeps1 = optz$pop1
 gridresult$peeps2 = optz$pop2
@@ -170,7 +174,7 @@ plot(gridresult)
 #So now for an optimisation routine.
 x <- optimiseAverageAbsoluteContiguousDifference(attribute = gridresult$peeps1, ncol = ncol, nrow = nrow, maximise = F, breakval = 10000000)
 
-#going t osave the 100x100 one, took ages
+#going to save the 100x100 one, took ages
 saveRDS(x,'100x100_0point5DI_minimise.rds')
 
 getAverageAbsoluteContiguousDifference(x, ncol = ncol, nrow = nrow)
@@ -3189,7 +3193,7 @@ ggplot(data.frame(null = null.vicinity.rci.neighmax), aes(x=null)) +
 #~~~~~~~~~~~~~~~~~~~~~~
 
 #But with similar patterning. Previous is 7*8
-#Have to make in QGIS to keep sizes square. Double the size? 14*16
+#Have to make in QGIS to keep sizes square. Double the size 14*16
 
 gridsmooth <- st_read('saves/shapefiles/7by8gridSquare.shp')
 gridedges <- st_read('saves/shapefiles/7by8gridSquare.shp')
